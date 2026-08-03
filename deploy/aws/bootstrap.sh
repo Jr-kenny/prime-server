@@ -17,6 +17,7 @@ dnf install -y docker jq
 systemctl enable --now docker
 
 install -d -m 0750 /opt/prime-server "$RUNTIME_ROOT" "$DATA_ROOT"
+chown 10001:10001 "$RUNTIME_ROOT" "$DATA_ROOT"
 
 aws ssm get-parameter \
   --name "$CONFIG_PARAM" \
