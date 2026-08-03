@@ -1,0 +1,255 @@
+/* Blue accent system for the dark network shell and light explorer surface. */
+:root {
+  --green: #4f8cff;
+  --accent-blue: #2563eb;
+  --accent-blue-bright: #60a5fa;
+  --accent-blue-soft: #e8f0ff;
+  --accent-blue-pale: #f4f8ff;
+  --accent-blue-border: #d4e3ff;
+}
+
+body {
+  background: radial-gradient(circle at 75% -20%, rgba(55, 112, 220, .14), transparent 34%), #08110f;
+}
+
+nav a:hover,
+nav a.active,
+nav button:hover,
+nav button.active {
+  background: rgba(79, 140, 255, .11);
+}
+
+nav a.active,
+nav button.active {
+  box-shadow: inset 2px 0 0 var(--accent-blue-bright);
+}
+
+nav a>i,
+nav button>i {
+  background: var(--accent-blue);
+  box-shadow: 0 0 8px rgba(79, 140, 255, .7);
+}
+
+.live-dot,
+.healthy i,
+.status i {
+  background: var(--accent-blue);
+  box-shadow: 0 0 8px rgba(79, 140, 255, .7);
+}
+
+.network-line b,
+.eyebrow,
+.wallet-button svg,
+.text-button,
+.timeline-row.done>span,
+.timeline-row>a,
+.proof-strip>a {
+  color: var(--accent-blue-bright);
+}
+
+.primary {
+  background: var(--accent-blue);
+  color: #fff;
+  box-shadow: 0 5px 24px rgba(37, 99, 235, .2);
+}
+
+.primary:hover {
+  background: #3d7df2;
+}
+
+.metric-icon.green,
+.metric-icon.blue,
+.metric-icon.purple {
+  color: var(--accent-blue-bright) !important;
+  background: rgba(79, 140, 255, .12) !important;
+}
+
+.metric p i.green,
+.metric p i.blue,
+.metric p i.purple {
+  color: var(--accent-blue-bright);
+}
+
+.text-button,
+.banner-action,
+.table-link:hover,
+.mono.table-link:hover,
+.detail-explorer-link {
+  color: var(--accent-blue);
+}
+
+.preview-banner.live {
+  background: #edf4ff;
+  border-color: #cfe0ff;
+  color: #52709e;
+}
+
+.preview-banner.live span {
+  color: var(--accent-blue);
+}
+
+.view-badge {
+  border-color: var(--accent-blue-border);
+  background: var(--accent-blue-pale);
+  color: #3b69bd;
+}
+
+.explorer-band {
+  background: #e7efff;
+}
+
+.event-type.finalized,
+.event-type.acknowledged {
+  background: #eaf1ff;
+  color: #356bc7;
+}
+
+.file-icon,
+.file-icon.f1,
+.file-icon.f2 {
+  background: var(--accent-blue-soft);
+  color: #3978e8;
+}
+
+.file-icon.f3 {
+  background: #eef3ff;
+  color: #5b77c7;
+}
+
+.recovery-pill i {
+  background: var(--accent-blue-bright);
+}
+
+.status {
+  background: #eef4ff;
+  color: #386dc5;
+  border-color: #d9e6ff;
+}
+
+.network-panel .healthy {
+  color: var(--accent-blue-bright);
+}
+
+.node-core {
+  border-color: #8ab1ff;
+  box-shadow: none;
+}
+
+.node-core .brand-mark span {
+  border-color: var(--accent-blue);
+}
+
+.provider-node span i {
+  background: var(--accent-blue-bright);
+}
+
+.provider-dot {
+  background: var(--accent-blue-soft);
+  color: #3978e8;
+}
+
+.recovery-note {
+  background: #eff5ff;
+  border-color: #d8e7ff;
+}
+
+.recovery-note>svg {
+  color: var(--accent-blue);
+}
+
+.proof-flow span i {
+  background: #e8f0ff;
+  color: var(--accent-blue);
+}
+
+.proof-strip>a {
+  color: var(--accent-blue);
+}
+
+.stepper .reached span {
+  background: #e8f0ff;
+  border-color: #9bbcff;
+  color: var(--accent-blue);
+}
+
+.drop-zone {
+  background: #f4f8ff;
+  border-color: #c8dcff;
+}
+
+.drop-zone:hover {
+  border-color: #6e9eff;
+  background: #edf4ff;
+}
+
+.drop-zone>svg {
+  color: var(--accent-blue);
+}
+
+.upload-form input:focus,
+.upload-form select:focus {
+  border-color: #6e9eff;
+}
+
+.recovery-config>span {
+  background: #e8f0ff;
+  color: var(--accent-blue);
+}
+
+.recovery-config b {
+  background: #eef4ff;
+  color: #4773bd;
+}
+
+.file-summary button,
+.timeline-row>a {
+  color: var(--accent-blue-bright);
+}
+
+.timeline-row.done>span {
+  background: #e8f0ff;
+  border-color: #9bbcff;
+  color: var(--accent-blue);
+}
+
+.timeline-row.working>span {
+  border-color: #6e9eff;
+}
+
+.timeline-row.working>span i {
+  background: var(--accent-blue);
+  box-shadow: 0 0 8px var(--accent-blue);
+}
+
+.provider-progress>div.acked>span {
+  background: #e8f0ff;
+  color: var(--accent-blue);
+}
+
+.success-box {
+  background: #eef4ff;
+  border-color: #cfe0ff;
+}
+
+.success-box>svg {
+  color: var(--accent-blue);
+}
+
+.detail-placements .acknowledged>span {
+  background: #e8f0ff;
+  color: var(--accent-blue);
+}
+
+.detail-placements .acknowledged em {
+  color: #4773bd;
+}
+
+.detail-explorer-link {
+  border-color: var(--accent-blue-border);
+}
+
+.mobile-brand {
+  border-color: #315895 !important;
+  background: #102044 !important;
+  color: var(--accent-blue-bright) !important;
+}
