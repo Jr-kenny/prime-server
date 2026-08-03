@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPublicClient, createWalletClient, custom, http, type Address, type EIP1193Provider } from "viem";
 import { Icon } from "./icons";
+import { DocsPage } from "./DocsPage";
 import { blobFinalizedEvent, coston2, registryAbi } from "./registry";
 import { formatBytes, prepareFile, shortHex, type PreparedBlob } from "./prime";
 import {
@@ -26,7 +27,7 @@ const previewMode = import.meta.env.VITE_DEMO_MODE !== "false";
 const liveMode = !previewMode && Boolean(registryAddress);
 const explorer = coston2.blockExplorers.default.url;
 
-type View = "overview" | "blobs" | "events" | "providers" | "recovery";
+type View = "overview" | "blobs" | "events" | "providers" | "recovery" | "docs";
 type UploadState = "idle" | "preparing" | "prepared" | "registering" | "registered" | "uploading" | "active" | "error";
 
 const navItems: Array<{ id: View; label: string; icon: string }> = [
@@ -100,7 +101,7 @@ export function App() {
       </nav>
       <div className="side-bottom">
         <div className="network-card"><div className="network-head"><span className="live-dot"/>{liveMode ? "Coston2 testnet" : "Coston2 preview"}</div><p>{sourceLabel}</p><strong>{registryAddress ? shortHex(registryAddress, 9, 5) : "Not configured"}</strong><div className="network-line"><span>Prime RPC</span><b className={import.meta.env.VITE_PRIME_RPC_URL ? "good" : "preview"}>{import.meta.env.VITE_PRIME_RPC_URL ? "Configured" : "Local default"}</b></div></div>
-        <a className="docs-link" href="https://github.com/Jr-kenny/prime-server" target="_blank" rel="noreferrer"><Icon name="file"/><span>Developer docs<small>Build on Prime Server</small></span><Icon name="external"/></a>
+        <button className={`docs-link ${view === "docs" ? "active" : ""}`} onClick={() => openView("docs")}><Icon name="file"/><span>Developer docs<small>Build on Prime Server</small></span><Icon name="arrow"/></button>
       </div>
     </aside>
 
@@ -112,14 +113,15 @@ export function App() {
       </header>
 
       <div className="page">
-        <div className={`preview-banner ${data.source === "coston2" ? "live" : ""}`}><span>{sourceLabel.toUpperCase()}</span> {sourceMessage}{liveMode && <button className="banner-action" onClick={() => void refresh()} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>}</div>
-        {dataError && <div className="data-error"><Icon name="pulse"/><span>{dataError}</span><button onClick={() => void refresh()}>Retry</button></div>}
+        {view !== "docs" && <div className={`preview-banner ${data.source === "coston2" ? "live" : ""}`}><span>{sourceLabel.toUpperCase()}</span> {sourceMessage}{liveMode && <button className="banner-action" onClick={() => void refresh()} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>}</div>}
+        {view !== "docs" && dataError && <div className="data-error"><Icon name="pulse"/><span>{dataError}</span><button onClick={() => void refresh()}>Retry</button></div>}
 
         {view === "overview" && <Overview data={data} visibleBlobs={visibleBlobs} visibleEvents={visibleEvents} loading={loading} onOpenBlob={setSelectedBlob} onView={openView} onStore={() => setUploadOpen(true)}/>}
         {view === "blobs" && <CollectionView title="Blobs" eyebrow="REGISTRY OBJECTS" description="Every named blob registered on Flare, its lifecycle state, and its recovery placement." actionLabel="Store a blob" onAction={() => setUploadOpen(true)}><BlobTable blobs={visibleBlobs} onOpenBlob={setSelectedBlob} live={data.source === "coston2"}/></CollectionView>}
         {view === "events" && <CollectionView title="Events" eyebrow="CHAIN ACTIVITY" description="Registration, placement, acknowledgement, payment, recovery, and finalization activity." actionLabel="Refresh" onAction={() => void refresh()}><EventTable events={visibleEvents} live={data.source === "coston2"}/></CollectionView>}
         {view === "providers" && <CollectionView title="Providers" eyebrow="PLACEMENT NETWORK" description="The operators Prime Server can assign shards to, as recorded by the registry." actionLabel="Store a blob" onAction={() => setUploadOpen(true)}><ProviderTable providers={data.providers} live={data.source === "coston2"}/></CollectionView>}
         {view === "recovery" && <RecoveryView data={data} onOpenBlob={setSelectedBlob}/>}
+        {view === "docs" && <DocsPage />}
       </div>
     </main>
 
