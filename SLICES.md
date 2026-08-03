@@ -262,9 +262,15 @@ Acceptance:
 
 These slices extend the proven storage and recovery core. They do not replace the direct wallet registration, Clay encoding, provider acknowledgement, or recovery boundaries above.
 
+### Registry freeze boundary
+
+After Slice 11A, `PrimeServerRegistry` is the stable storage and native-payment registry. Its ABI and storage layout are the compatibility boundary for the storage network. FCC transport uses separate instruction-sender and extension contracts that read existing blob policy and access-intent state, then record results through the existing controller boundary. XRP, FDC, and FAssets use separate payment-intent or escrow contracts. Those layers do not add FCC ciphertext, device keys, attestation data, external-payment state, or cross-chain settlement fields to `PrimeServerRegistry`.
+
+The current local registry build requires a replacement Coston2 deployment before live evidence is refreshed. The earlier Coston2 address remains pre-hardening evidence and must not be presented as the frozen registry deployment.
+
 ## Slice 11: shared policy and native payment schema
 
-Status: `complete for native Flare, XRP settlement pending`
+Status: `complete locally, Coston2 redeploy pending, XRP settlement pending`
 
 Dependencies: Slice 9.
 
@@ -273,22 +279,49 @@ Output:
 - `StorageMode`, `AccessPolicy`, `PaymentAsset`, and `PaymentStatus` contract enums.
 - `BlobPolicy`, `BlobPayment`, and `PaidBlobRegistration` records.
 - Native quote, atomic wallet payment plus registration, escrow, refund, provider claim, and protocol fee paths.
+- Duration-based pricing with a retained provider reserve that can be claimed after expiry.
 - SDK quote and paid-registration methods.
 - Prime RPC payment and policy cross-checks.
 
 Acceptance:
 
 - Foundry tests prove policy recording, atomic native escrow, provider claims, fee accounting, and pending refund rules.
-- A real local EVM test registers a paid blob, uploads it through the developer API, settles all four placement providers, and reads the settled payment state.
+- A real local EVM test registers a paid blob, uploads it through the developer API, pays the immediate claims for all four providers, and reads the partially settled payment state while the retention reserve remains escrowed.
 - The registry runtime stays below EIP-170 under the configured via-IR build.
 
-Evidence: 8 Foundry tests pass. SDK and RPC suites pass. The real local EVM paid upload and four-provider settlement test passes. The fresh Coston2 paid run is recorded in `docs/evidence/coston2-paid-live-proof.md`. Runtime size is 23,489 bytes against the 24,576-byte limit.
+Evidence: The native payment, duration quote, and retention reserve tests pass locally. SDK and RPC suites pass. The next Coston2 deployment and live paid proof must be rerun after this registry change. The current via-IR build remains below EIP-170.
+
+## Slice 11A: payment, metadata, and access hardening
+
+Status: `complete locally, redeploy pending`
+
+Dependencies: Slice 11.
+
+Output:
+
+- Native quotes include expiry duration and tolerate quote-time drift by refunding excess value.
+- Ten percent of the provider pool remains reserved until expiry.
+- Confidential access results reject expired, revoked, or no-longer-authorized requests and enforce a maximum request lifetime.
+- FCC envelopes seal recoverable private metadata, including the original filename and content type.
+- Private and confidential SDK names are opaque `private/<blobId>` values.
+- Nested metadata canonicalization is recursive and stable.
+- Selected wallets can retrieve ciphertext with an active onchain view request, while confidential raw reads remain blocked.
+
+Acceptance:
+
+- Foundry tests cover duration pricing, expiry checks, maximum access lifetime, and post-expiry provider reserve claims.
+- SDK tests cover nested canonicalization, encrypted metadata recovery, opaque names, and selected-wallet retrieval options.
+- RPC tests cover the owner-scoped selected-wallet ciphertext route.
+
+Evidence: Local Foundry, SDK, provider, and RPC suites pass. A fresh registry deployment is required before these changes can be claimed live on Coston2.
+
+Freeze boundary: `PrimeServerRegistry` is frozen after this slice. FCC transport and XRP, FDC, and FAssets settlement continue in separate contracts and extensions. Future changes must preserve this registry ABI and storage layout unless a separately approved registry version is created.
 
 ## Slice 12: client-side encryption and FCC envelope preparation
 
 Status: `locally complete`
 
-Dependencies: Slice 11.
+Dependencies: Slice 11A.
 
 Output:
 
@@ -311,7 +344,7 @@ Evidence: SDK encryption tests pass. This slice has local cryptographic and comm
 
 Status: `locally complete, live FCC controller pending`
 
-Dependencies: Slice 12.
+Dependencies: Slice 12 and Slice 11A.
 
 Output:
 
@@ -334,16 +367,18 @@ Evidence: Foundry, SDK, and RPC tests pass locally. A real FCC extension, approv
 
 ## Slice 14: Flare Confidential Compute extension
 
-Status: `pending`
+Status: `locally complete, live FCC registration and attestation pending`
 
 Dependencies: Slice 13 and FCC deployment inputs.
 
 Output:
 
 - Prime Server FCC extension and instruction sender.
+- Separate instruction sender contracts using the current Flare `TeeInstructionParams` boundary.
 - Envelope ingestion inside the TEE.
 - Wallet authorization and replay checks tied to the registry request.
 - Device-bound key rewrap for private viewing.
+- Approved local compute operations that return result commitments without plaintext.
 - Approved code hash and attestation evidence.
 
 Acceptance:
@@ -353,11 +388,13 @@ Acceptance:
 - The browser decrypts locally on a second device using the same wallet.
 - The proof identifies the extension, code hash, TEE identity, request ID, and response commitment.
 
+Evidence: The separate sender contract tests and FCC extension-core tests pass locally. The repository still needs the official FCC deployment flow, public extension registration, TEE version approval, machine registration, attestation, and a live Coston2 proof before this slice is called live.
+
 ## Slice 15: XRP, FDC, and FAssets settlement
 
 Status: `pending`
 
-Dependencies: Slice 11 and a real escrow or attested external-payment settlement design.
+Dependencies: Slice 11A and a real escrow or attested external-payment settlement design.
 
 Output:
 
@@ -375,7 +412,7 @@ Acceptance:
 
 Status: `pending`
 
-Dependencies: Slice 11, Slice 12, Slice 13, and Slice 14.
+Dependencies: Slice 11A, Slice 12, Slice 13, and Slice 14.
 
 Output:
 

@@ -47,7 +47,8 @@ export const primeServerRegistryAbi = [
     inputs: [
       { name: "size", type: "uint64" },
       { name: "totalShards", type: "uint8" },
-      { name: "storageMode", type: "uint8" }
+      { name: "storageMode", type: "uint8" },
+      { name: "expiresAt", type: "uint64" }
     ],
     outputs: [
       { name: "total", type: "uint256" },

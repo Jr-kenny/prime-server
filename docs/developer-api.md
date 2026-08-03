@@ -54,7 +54,7 @@ x-prime-key-envelope-commitment: 0x000000000000000000000000000000000000000000000
 x-prime-metadata-commitment: 0x0000000000000000000000000000000000000000000000000000000000000000
 ```
 
-The paid wallet transaction quotes native Flare from the registry and sends the payment together with the blob registration. Prime RPC accepts the upload only while the registry payment is escrowed. Finalization makes the provider pool claimable, and the coordinator submits provider claim transactions. The current claim slice pays the final placement providers. Recovery provider rewards are still a separate settlement slice.
+The paid wallet transaction quotes native Flare from the registry and sends the payment together with the blob registration. The quote includes the registered storage duration and storage-mode multiplier. Prime RPC accepts the upload only while the registry payment is escrowed. Finalization makes the immediate provider rewards claimable, while a retention reserve stays escrowed until the blob expires. Providers can claim that reserve after expiry, and the protocol fee becomes withdrawable only after the full provider pool is settled.
 
 Example registration-first request after `createBlobNamed` confirms:
 
@@ -87,9 +87,9 @@ The response includes the Prime blob ID, commitment, owner-scoped name hash, ori
 
 Private storage
 
-The SDK encrypts the file locally with AES-256-GCM before it prepares the Clay commitment. The provider and RPC receive only the ciphertext. A sealed key envelope is committed on Flare and is intended for the FCC extension. The current repository can create and verify the envelope shape locally. It does not claim a live TEE release until FCC is deployed and attestation is checked.
+The SDK encrypts the file locally with AES-256-GCM before it prepares the Clay commitment. The provider and RPC receive only the ciphertext. Private and confidential preparations replace the supplied public filename with an opaque `private/<blobId>` name. The original filename and content type are included inside the encrypted metadata payload, and the metadata commitment is recorded on Flare. A sealed key envelope is committed on Flare and is intended for the FCC extension. The current repository can create and verify the envelope shape locally. It does not claim a live TEE release until FCC is deployed and attestation is checked.
 
-Confidential storage uses the same encrypted upload path with `compute_only` access. The gateway refuses raw reads for those blobs. The wallet can create a fresh EIP-712 access intent bound to a temporary device public-key commitment. The registry enforces the wallet authorization and nonce. An FCC controller must consume the intent with a response commitment before a future compute result can be released.
+Selected wallets can retrieve ciphertext through the owner-scoped route after presenting an active, wallet-signed view access request in `x-prime-access-request-id`. The route returns ciphertext only. The SDK exposes this as `prime.get(name, { account: owner, accessRequestId })`. Confidential storage uses the same encrypted upload path with `compute_only` access. The gateway refuses raw reads for those blobs. The wallet can create a fresh EIP-712 access intent bound to a temporary device public-key commitment. The registry enforces the wallet authorization, nonce, deadline, blob expiry, revocation state, and current wallet authorization. An FCC controller must consume the intent with a response commitment before a future compute result can be released.
 
 ## JavaScript client
 
@@ -128,7 +128,7 @@ await prime.registerPaidBlob(paidPrepared, {
 await prime.uploadRegisteredBlob(paidPrepared, bytes, { contentType: "text/plain" });
 
 const encrypted = await prime.prepareEncryptedBlob(bytes, {
-  name: "opaque/private.bin",
+  name: "private.bin",
   storageMode: "private",
   accessPolicy: "owner_only",
   fccPublicKey: teePublicKey,
@@ -139,6 +139,10 @@ await prime.uploadRegisteredBlob(encrypted, encrypted.ciphertext);
 
 const listing = await prime.list({ prefix: "reports/" });
 const file = await prime.get("reports/hello.txt");
+const selectedCiphertext = await prime.get(encrypted.name, {
+  account: ownerAddress,
+  accessRequestId: accessRequestId
+});
 ```
 
 `prime.put(...)` is a convenience wrapper around preparation, direct registration, and registered upload. Pass `paid: true` for native paid registration, or use `prime.putPaid(...)`. Encrypted preparations are uploaded with `encrypted.ciphertext`, not the original plaintext. The SDK requires a wallet client, public client, and registry address because the upload must wait for a successful onchain registration receipt.

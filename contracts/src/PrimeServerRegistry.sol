@@ -137,6 +137,9 @@ contract PrimeServerRegistry {
     bytes32 public immutable DOMAIN_SEPARATOR;
 
     uint256 private constant QUOTE_MIB_BYTES = 1_048_576;
+    uint256 private constant QUOTE_DAY_SECONDS = 86_400;
+    uint16 private constant PROVIDER_RESERVE_BPS = 1_000;
+    uint64 private constant MAX_ACCESS_LIFETIME = 1 days;
 
     mapping(uint256 providerId => Provider provider) public providers;
     mapping(address operator => uint256 providerId) public providerIdByOperator;
@@ -151,6 +154,8 @@ contract PrimeServerRegistry {
     mapping(bytes32 blobId => BlobPayment payment) public blobPayments;
     mapping(bytes32 blobId => mapping(uint256 providerId => mapping(uint8 shardIndex => bool))) public
         providerSettlementClaimed;
+    mapping(bytes32 blobId => mapping(uint256 providerId => mapping(uint8 shardIndex => bool))) public
+        providerReserveClaimed;
     mapping(address controller => bool) public confidentialAccessControllers;
     mapping(bytes32 blobId => mapping(address requester => uint256 nonce)) public confidentialAccessNonces;
     mapping(bytes32 requestId => ConfidentialAccessRequest request) public confidentialAccessRequests;
@@ -299,7 +304,10 @@ contract PrimeServerRegistry {
         require(policy.storageMode != StorageMode.Public, "confidential access requires encrypted storage");
         require(request.requester != address(0), "requester required");
         require(request.deviceKeyCommitment != bytes32(0), "device key commitment required");
-        require(request.deadline >= block.timestamp, "access request expired");
+        require(blob.status != BlobStatus.Revoked, "revoked");
+        require(blob.expiresAt == 0 || blob.expiresAt > block.timestamp, "expired");
+        require(request.deadline >= block.timestamp, "expired");
+        require(request.deadline <= block.timestamp + MAX_ACCESS_LIFETIME, "deadline");
         require(request.nonce == confidentialAccessNonces[request.blobId][request.requester], "invalid access nonce");
         if (policy.storageMode == StorageMode.Confidential || policy.accessPolicy == AccessPolicy.ComputeOnly) {
             require(request.purpose == AccessPurpose.Compute, "confidential storage is compute-only");
@@ -338,16 +346,23 @@ contract PrimeServerRegistry {
         onlyConfidentialAccessController
     {
         ConfidentialAccessRequest storage request = confidentialAccessRequests[requestId];
-        require(request.exists, "access request does not exist");
-        require(!request.consumed, "access request already consumed");
         require(responseCommitment != bytes32(0), "response commitment required");
+        require(_isConfidentialAccessUsable(request), "access unusable");
         request.consumed = true;
         emit ConfidentialAccessConsumed(requestId, request.blobId, responseCommitment);
     }
 
     function isConfidentialAccessUsable(bytes32 requestId) external view returns (bool) {
-        ConfidentialAccessRequest memory request = confidentialAccessRequests[requestId];
-        return request.exists && !request.consumed && request.deadline >= block.timestamp;
+        return _isConfidentialAccessUsable(confidentialAccessRequests[requestId]);
+    }
+
+    function _isConfidentialAccessUsable(ConfidentialAccessRequest memory request) internal view returns (bool) {
+        Blob memory blob = blobs[request.blobId];
+        BlobPolicy memory policy = blobPolicies[request.blobId];
+        return request.exists && !request.consumed && request.deadline >= block.timestamp
+            && blob.exists && blob.status != BlobStatus.Revoked
+            && (blob.expiresAt == 0 || blob.expiresAt > block.timestamp)
+            && _isAccessAuthorized(request.blobId, request.requester, policy.accessPolicy);
     }
 
     function _isAccessAuthorized(bytes32 blobId, address requester, AccessPolicy accessPolicy)
@@ -383,7 +398,7 @@ contract PrimeServerRegistry {
         emit NativePricingChanged(ratePerMiBPerShard, feeBps);
     }
 
-    function quoteNativePayment(uint64 size, uint8 totalShards, StorageMode storageMode)
+    function quoteNativePayment(uint64 size, uint8 totalShards, StorageMode storageMode, uint64 expiresAt)
         public
         view
         returns (
@@ -396,11 +411,16 @@ contract PrimeServerRegistry {
     {
         require(size > 0, "size required");
         require(totalShards > 0, "shards required");
+        require(expiresAt > block.timestamp, "expiry");
 
         uint256 mibCount = (uint256(size) + QUOTE_MIB_BYTES - 1) / QUOTE_MIB_BYTES;
+        uint256 durationDays = (uint256(expiresAt) - block.timestamp + QUOTE_DAY_SECONDS - 1) / QUOTE_DAY_SECONDS;
         uint256 multiplierBps = _modeMultiplierBps(storageMode);
-        providerRewardPerShard = (mibCount * nativeRatePerMiBPerShard * multiplierBps + 9_999) / 10_000;
-        providerPool = providerRewardPerShard * totalShards;
+        uint256 grossProviderRewardPerShard =
+            (mibCount * nativeRatePerMiBPerShard * multiplierBps * durationDays + 9_999) / 10_000;
+        uint256 providerReservePerShard = (grossProviderRewardPerShard * PROVIDER_RESERVE_BPS + 9_999) / 10_000;
+        providerRewardPerShard = grossProviderRewardPerShard - providerReservePerShard;
+        providerPool = grossProviderRewardPerShard * totalShards;
         protocolFee = (providerPool * protocolFeeBps + 9_999) / 10_000;
         total = providerPool + protocolFee;
         quoteCommitment = keccak256(
@@ -410,8 +430,11 @@ contract PrimeServerRegistry {
                 size,
                 totalShards,
                 storageMode,
+                expiresAt,
+                durationDays,
                 nativeRatePerMiBPerShard,
                 protocolFeeBps,
+                PROVIDER_RESERVE_BPS,
                 total,
                 providerPool,
                 protocolFee
@@ -647,8 +670,8 @@ contract PrimeServerRegistry {
             uint256 protocolFee,
             uint256 providerRewardPerShard,
             bytes32 quoteCommitment
-        ) = quoteNativePayment(registration.size, registration.totalShards, registration.storageMode);
-        require(msg.value == total, "incorrect native payment");
+        ) = quoteNativePayment(registration.size, registration.totalShards, registration.storageMode, registration.expiresAt);
+        require(msg.value >= total, "incorrect native payment");
 
         _createUserBlob(registration);
 
@@ -683,6 +706,11 @@ contract PrimeServerRegistry {
         emit PaymentEscrowed(
             registration.blobId, msg.sender, PaymentAsset.NativeFlare, total, providerPool, protocolFee, quoteCommitment
         );
+        uint256 excess = msg.value - total;
+        if (excess > 0) {
+            (bool success,) = payable(msg.sender).call{value: excess}("");
+            require(success, "refund failed");
+        }
     }
 
     function _createUserBlob(PaidBlobRegistration calldata registration) internal {
@@ -792,17 +820,24 @@ contract PrimeServerRegistry {
         require(providers[providerId].active, "provider inactive");
         require(shardIndices.length > 0, "shards required");
 
+        uint256 reserveAmount;
+        uint256 reservePerShard = payment.providerPool / blob.totalShards - payment.providerRewardPerShard;
         for (uint256 index = 0; index < shardIndices.length; index++) {
             uint8 shardIndex = shardIndices[index];
             require(shardIndex < blob.totalShards, "invalid shard index");
             require(placement[blobId][shardIndex] == providerId, "provider not assigned");
             require(acknowledgements[blobId][providerId][shardIndex].exists, "shard not acknowledged");
-            require(!providerSettlementClaimed[blobId][providerId][shardIndex], "settlement already claimed");
-
-            providerSettlementClaimed[blobId][providerId][shardIndex] = true;
-            amount += payment.providerRewardPerShard;
+            if (!providerSettlementClaimed[blobId][providerId][shardIndex]) {
+                providerSettlementClaimed[blobId][providerId][shardIndex] = true;
+                amount += payment.providerRewardPerShard;
+            }
+            if (block.timestamp >= blob.expiresAt && !providerReserveClaimed[blobId][providerId][shardIndex]) {
+                providerReserveClaimed[blobId][providerId][shardIndex] = true;
+                reserveAmount += reservePerShard;
+            }
         }
 
+        amount += reserveAmount;
         require(amount > 0, "settlement is empty");
         payment.providerSettled += amount;
         require(payment.providerSettled <= payment.providerPool, "provider pool exhausted");

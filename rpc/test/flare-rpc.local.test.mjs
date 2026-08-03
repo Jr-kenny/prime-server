@@ -161,7 +161,7 @@ test("Prime RPC writes an upload lifecycle to a real local EVM registry", async 
       const paidExpiresAt = Math.floor(Date.now() / 1000) + 3600;
       const policyCommitment = `0x${createHash("sha256").update("public-owner-only-policy").digest("hex")}`;
       const zeroBytes32 = `0x${"00".repeat(32)}`;
-      const quote = await registry.quoteNativePayment({ size: paidInput.length, totalShards: 4, storageMode: 0 });
+      const quote = await registry.quoteNativePayment({ size: paidInput.length, totalShards: 4, storageMode: 0, expiresAt: paidExpiresAt });
       await registry.createBlobNamedPaid({
         wallet: userWallet,
         registration: {
@@ -211,9 +211,9 @@ test("Prime RPC writes an upload lifecycle to a real local EVM registry", async 
       const paidPutBody = await paidPutResponse.text();
       assert.equal(paidPutResponse.status, 201, paidPutBody);
       const paidPut = JSON.parse(paidPutBody);
-      assert.equal(paidPut.paymentStatus, "settled");
+      assert.equal(paidPut.paymentStatus, "partially_settled");
       assert.equal(paidPut.providerSettlements.length, 4);
-      assert.equal((await registry.getBlobPayment(paidBlobId)).statusName, "settled");
+      assert.equal((await registry.getBlobPayment(paidBlobId)).statusName, "partially_settled");
 
       const teeKey = createECDH("secp256k1");
       teeKey.generateKeys();
@@ -240,8 +240,8 @@ test("Prime RPC writes an upload lifecycle to a real local EVM registry", async 
       const privateUpload = await client.uploadRegisteredBlob(encrypted, encrypted.ciphertext);
       assert.equal(privateRegistration.policy.storageMode, 1);
       assert.equal(privateUpload.storageMode, "private");
-      assert.equal(privateUpload.paymentStatus, "settled");
-      const encryptedRead = await client.get("opaque/private.bin");
+      assert.equal(privateUpload.paymentStatus, "partially_settled");
+      const encryptedRead = await client.get(encrypted.name);
       assert.deepEqual(await decryptBlob(encryptedRead.bytes, encrypted.fileKey), privateInput);
 
       const confidential = await client.prepareEncryptedBlob(Buffer.from("compute-only local payload"), {
@@ -254,7 +254,7 @@ test("Prime RPC writes an upload lifecycle to a real local EVM registry", async 
       await client.registerPaidBlob(confidential);
       await client.uploadRegisteredBlob(confidential, confidential.ciphertext);
       await assert.rejects(
-        () => client.get("opaque/compute.bin"),
+        () => client.get(confidential.name),
         (error) => error?.status === 403
       );
     } finally {

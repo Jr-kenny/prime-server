@@ -14,6 +14,7 @@ export class MemoryRegistry {
     this.providers = new Map();
     this.blobs = new Map();
     this.blobIdByOwnerNameHash = new Map();
+    this.confidentialAccessRequests = new Map();
   }
 
   async registerProvider({ providerId, endpoint, publicKey }) {
@@ -62,7 +63,8 @@ export class MemoryRegistry {
         settledAt: 0
       },
       placement: new Map(),
-      acknowledgements: new Map()
+      acknowledgements: new Map(),
+      selectedWallets: new Map()
     });
   }
 
@@ -149,6 +151,42 @@ export class MemoryRegistry {
 
   async getBlobPayment(blobId) {
     return this.blobs.get(blobId)?.payment || null;
+  }
+
+  async setBlobWalletAccess({ blobId, wallet, allowed }) {
+    const blob = this.blobs.get(blobId);
+    if (!blob) fail("blob does not exist");
+    if (blob.policy.accessPolicy !== 1 && blob.policy.accessPolicyName !== "selected_wallets") {
+      fail("selected wallet policy required");
+    }
+    blob.selectedWallets.set(String(wallet).toLowerCase(), Boolean(allowed));
+  }
+
+  seedConfidentialAccessRequest({ requestId, blobId, requester, purpose = 0, deadline, consumed = false }) {
+    this.confidentialAccessRequests.set(String(requestId).replace(/^0x/, "").toLowerCase(), {
+      blobId,
+      requester,
+      purpose: Number(purpose),
+      deadline: Number(deadline),
+      exists: true,
+      consumed: Boolean(consumed)
+    });
+  }
+
+  async getConfidentialAccessRequest(requestId) {
+    return this.confidentialAccessRequests.get(String(requestId).replace(/^0x/, "").toLowerCase()) || null;
+  }
+
+  async isConfidentialAccessUsable(requestId) {
+    const request = await this.getConfidentialAccessRequest(requestId);
+    const blob = request ? this.blobs.get(request.blobId) : null;
+    if (!request || !blob) return false;
+    const authorized = String(blob.owner).toLowerCase() === String(request.requester).toLowerCase()
+      || Boolean(blob.selectedWallets.get(String(request.requester).toLowerCase()));
+    return request.exists && !request.consumed && request.deadline >= Math.floor(Date.now() / 1000)
+      && blob.status !== "revoked"
+      && (!blob.expiresAt || blob.expiresAt > Math.floor(Date.now() / 1000))
+      && authorized;
   }
 
   async startRecovery(blobId, shardIndex) {

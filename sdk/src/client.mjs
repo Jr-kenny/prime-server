@@ -249,15 +249,16 @@ export class PrimeServerClient {
     return { hash, receipt };
   }
 
-  async quoteNativePayment({ size, totalShards, storageMode = "public" } = {}) {
+  async quoteNativePayment({ size, totalShards, storageMode = "public", expiresAt } = {}) {
     if (!this.registryAddress || !this.publicClient) throw new Error("registryAddress and publicClient are required for payment quotes");
     if (!Number.isSafeInteger(Number(size)) || Number(size) <= 0) throw new Error("size must be a positive integer");
     if (!Number.isSafeInteger(Number(totalShards)) || Number(totalShards) <= 0) throw new Error("totalShards must be a positive integer");
+    if (!Number.isSafeInteger(Number(expiresAt)) || Number(expiresAt) <= Math.floor(Date.now() / 1000)) throw new Error("expiresAt must be a future UNIX timestamp");
     const raw = await this.publicClient.readContract({
       address: this.registryAddress,
       abi: this.registryAbi,
       functionName: "quoteNativePayment",
-      args: [BigInt(size), Number(totalShards), resolveStorageMode(storageMode)]
+      args: [BigInt(size), Number(totalShards), resolveStorageMode(storageMode), BigInt(expiresAt)]
     });
     return normalizeQuote(raw);
   }
@@ -268,13 +269,17 @@ export class PrimeServerClient {
     if (!prepared?.blobId || !prepared.name || !prepared.commitment) throw new Error("prepared blob metadata is incomplete");
     if (!prepared.expiresAt) throw new Error("paid blob registration requires a future expiry");
     const policy = normalizePolicy({ ...(prepared.policy || {}), ...(options.policy || {}), ...options });
+    if (policy.storageMode !== 0 && prepared.name !== `private/${prepared.blobId.replace(/^0x/, "")}`) {
+      throw new Error("private and confidential paid blobs require an opaque SDK-generated name");
+    }
     const quote = options.quote || await this.quoteNativePayment({
       size: prepared.size,
       totalShards: prepared.totalShards,
-      storageMode: policy.storageMode
+      storageMode: policy.storageMode,
+      expiresAt: prepared.expiresAt
     });
     const value = options.value === undefined ? quote.total : BigInt(options.value);
-    if (value !== quote.total) throw new Error("native payment value does not match the current quote");
+    if (value < quote.total) throw new Error("native payment value is below the current quote");
     const account = this.walletClient.account || this.wallet?.account || this.wallet?.address;
     if (!account) throw new Error("wallet account is required for direct paid blob registration");
     const registration = {
@@ -367,9 +372,9 @@ export class PrimeServerClient {
     return (await this.request(`/blobs/${encodePath(account)}?${query}`, { auth: true })).json();
   }
 
-  async head(name) {
-    const account = walletAddress(this.wallet);
-    const response = await this.request(`/blobs/${encodePath(account)}/${encodePath(name)}`, { method: "HEAD", auth: true });
+  async head(name, { account = walletAddress(this.wallet), accessRequestId } = {}) {
+    const headers = accessRequestId ? { "x-prime-access-request-id": accessRequestId } : {};
+    const response = await this.request(`/blobs/${encodePath(account)}/${encodePath(name)}`, { method: "HEAD", headers, auth: true });
     return {
       size: Number(response.headers.get("content-length")),
       contentType: response.headers.get("content-type"),
@@ -380,9 +385,9 @@ export class PrimeServerClient {
     };
   }
 
-  async get(name, { range } = {}) {
-    const account = walletAddress(this.wallet);
+  async get(name, { range, account = walletAddress(this.wallet), accessRequestId } = {}) {
     const headers = range ? { range } : {};
+    if (accessRequestId) headers["x-prime-access-request-id"] = accessRequestId;
     const response = await this.request(`/blobs/${encodePath(account)}/${encodePath(name)}`, {
       headers,
       auth: true

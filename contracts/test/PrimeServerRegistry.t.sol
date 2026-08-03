@@ -8,6 +8,7 @@ interface PrimeServerVm {
     function addr(uint256 privateKey) external returns (address);
     function sign(uint256 privateKey, bytes32 digest) external returns (uint8 v, bytes32 r, bytes32 s);
     function prank(address sender) external;
+    function warp(uint256 timestamp) external;
 }
 
 contract PrimeServerActor {
@@ -236,17 +237,28 @@ contract PrimeServerRegistryTest {
         string memory blobName = "paid/hello.txt";
         uint64 expiresAt = uint64(block.timestamp + 7 days);
 
-        (uint256 providerPool, uint256 protocolFee, uint256 providerRewardPerShard) =
+        (uint256 providerPool, uint256 protocolFee, uint256 providerRewardPerShard, uint256 providerReservePerShard) =
             _registerPaidBlob(registry, user, blobId, blobName, expiresAt, policyCommitment);
 
-        _settlePaidBlob(registry, blobId, p1, p2, p3, p4);
+        _settlePaidBlob(registry, blobId, expiresAt, p1, p2, p3, p4);
 
         _assertSettled(registry, blobId, providerPool);
-        require(address(p1).balance == providerRewardPerShard, "provider one payout mismatch");
-        require(address(p2).balance == providerRewardPerShard, "provider two payout mismatch");
-        require(address(p3).balance == providerRewardPerShard, "provider three payout mismatch");
-        require(address(p4).balance == providerRewardPerShard, "provider four payout mismatch");
+        require(address(p1).balance == providerRewardPerShard + providerReservePerShard, "provider one payout mismatch");
+        require(address(p2).balance == providerRewardPerShard + providerReservePerShard, "provider two payout mismatch");
+        require(address(p3).balance == providerRewardPerShard + providerReservePerShard, "provider three payout mismatch");
+        require(address(p4).balance == providerRewardPerShard + providerReservePerShard, "provider four payout mismatch");
         require(registry.withdrawableProtocolFees() == protocolFee, "protocol fee should be withdrawable");
+    }
+
+    function testNativeQuoteIncludesStorageDuration() public view {
+        uint64 oneDay = uint64(block.timestamp + 1 days);
+        uint64 sevenDays = uint64(block.timestamp + 7 days);
+        (uint256 oneDayTotal, uint256 oneDayPool,,,) =
+            registry.quoteNativePayment(2048, 4, PrimeServerRegistry.StorageMode.Public, oneDay);
+        (uint256 sevenDayTotal, uint256 sevenDayPool,,,) =
+            registry.quoteNativePayment(2048, 4, PrimeServerRegistry.StorageMode.Public, sevenDays);
+        require(sevenDayTotal > oneDayTotal, "longer storage should cost more");
+        require(sevenDayPool > oneDayPool, "longer storage should reserve more provider value");
     }
 
     function testConfidentialAccessBindsWalletDeviceAndNonce() public {
@@ -256,7 +268,7 @@ contract PrimeServerRegistryTest {
         bytes32 policyCommitment = keccak256("private-owner-only-policy");
         bytes32 keyEnvelopeCommitment = keccak256("fcc-key-envelope");
         uint64 expiresAt = uint64(block.timestamp + 7 days);
-        (uint256 total,,,,) = registry.quoteNativePayment(1024, 4, PrimeServerRegistry.StorageMode.Private);
+        (uint256 total,,,,) = registry.quoteNativePayment(1024, 4, PrimeServerRegistry.StorageMode.Private, expiresAt);
         vm.deal(user, total);
         vm.prank(user);
         registry.createBlobNamedPaid{value: total}(
@@ -304,11 +316,47 @@ contract PrimeServerRegistryTest {
                 )
             );
         require(!replaySucceeded, "access signature replay should be rejected");
+
+        PrimeServerRegistry.ConfidentialAccessRequest memory expiredRequest = PrimeServerRegistry.ConfidentialAccessRequest({
+            blobId: blobId,
+            requester: user,
+            deviceKeyCommitment: keccak256("second-device-key"),
+            nonce: 1,
+            deadline: uint64(block.timestamp + 600),
+            purpose: PrimeServerRegistry.AccessPurpose.View,
+            exists: false,
+            consumed: false
+        });
+        bytes32 expiredDigest = registry.hashConfidentialAccess(expiredRequest);
+        (v, r, s) = vm.sign(userKey, expiredDigest);
+        bytes32 expiredRequestId = registry.authorizeConfidentialAccess(expiredRequest, abi.encodePacked(r, s, v));
+        vm.warp(expiredRequest.deadline + 1);
+        (bool expiredConsumeSucceeded,) = address(registry)
+            .call(abi.encodeWithSelector(registry.recordConfidentialAccessResult.selector, expiredRequestId, keccak256("expired-key")));
+        require(!expiredConsumeSucceeded, "expired access result should be rejected");
+        require(!registry.isConfidentialAccessUsable(expiredRequestId), "expired access request should be unusable");
+
+        PrimeServerRegistry.ConfidentialAccessRequest memory distantRequest = PrimeServerRegistry.ConfidentialAccessRequest({
+            blobId: blobId,
+            requester: user,
+            deviceKeyCommitment: keccak256("distant-device-key"),
+            nonce: 2,
+            deadline: uint64(block.timestamp + 2 days),
+            purpose: PrimeServerRegistry.AccessPurpose.View,
+            exists: false,
+            consumed: false
+        });
+        bytes32 distantDigest = registry.hashConfidentialAccess(distantRequest);
+        (v, r, s) = vm.sign(userKey, distantDigest);
+        (bool distantAuthorizeSucceeded,) = address(registry)
+            .call(abi.encodeWithSelector(registry.authorizeConfidentialAccess.selector, distantRequest, abi.encodePacked(r, s, v)));
+        require(!distantAuthorizeSucceeded, "distant access deadline should be rejected");
     }
 
     function _settlePaidBlob(
         PrimeServerRegistry target,
         bytes32 blobId,
+        uint64 expiresAt,
         PrimeServerActor p1,
         PrimeServerActor p2,
         PrimeServerActor p3,
@@ -336,6 +384,12 @@ contract PrimeServerRegistryTest {
         p2.claimSettlement(target, blobId, shard1);
         p3.claimSettlement(target, blobId, shard2);
         p4.claimSettlement(target, blobId, shard3);
+
+        vm.warp(expiresAt + 1);
+        p1.claimSettlement(target, blobId, shard0);
+        p2.claimSettlement(target, blobId, shard1);
+        p3.claimSettlement(target, blobId, shard2);
+        p4.claimSettlement(target, blobId, shard3);
     }
 
     function _registerPaidBlob(
@@ -345,11 +399,12 @@ contract PrimeServerRegistryTest {
         string memory blobName,
         uint64 expiresAt,
         bytes32 policyCommitment
-    ) internal returns (uint256 providerPool, uint256 protocolFee, uint256 providerRewardPerShard) {
+    ) internal returns (uint256 providerPool, uint256 protocolFee, uint256 providerRewardPerShard, uint256 providerReservePerShard) {
         uint256 total;
         bytes32 quoteCommitment;
         (total, providerPool, protocolFee, providerRewardPerShard, quoteCommitment) =
-            target.quoteNativePayment(2048, 4, PrimeServerRegistry.StorageMode.Public);
+            target.quoteNativePayment(2048, 4, PrimeServerRegistry.StorageMode.Public, expiresAt);
+        providerReservePerShard = providerPool / 4 - providerRewardPerShard;
         vm.deal(address(user), total);
 
         PrimeServerRegistry.PaidBlobRegistration memory registration = PrimeServerRegistry.PaidBlobRegistration({
@@ -370,7 +425,16 @@ contract PrimeServerRegistryTest {
         user.createNamedPaid{value: total}(target, registration);
 
         _assertPaidRegistration(target, blobId, user, expiresAt, policyCommitment);
-        _assertEscrow(target, blobId, user, total, providerPool, protocolFee, providerRewardPerShard, quoteCommitment);
+        _assertEscrow(
+            target,
+            blobId,
+            user,
+            total,
+            providerPool,
+            protocolFee,
+            providerRewardPerShard,
+            quoteCommitment
+        );
     }
 
     function _assertPaidRegistration(

@@ -225,12 +225,12 @@ export function createFlareRegistry({
       ]);
     },
 
-    async quoteNativePayment({ size, totalShards, storageMode }) {
+    async quoteNativePayment({ size, totalShards, storageMode, expiresAt }) {
       const raw = await publicClient.readContract({
         address,
         abi: primeServerRegistryAbi,
         functionName: "quoteNativePayment",
-        args: [BigInt(size), Number(totalShards), Number(storageMode)]
+        args: [BigInt(size), Number(totalShards), Number(storageMode), BigInt(expiresAt)]
       });
       return {
         total: BigInt(raw.total ?? raw[0]),

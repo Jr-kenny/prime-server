@@ -48,7 +48,7 @@ function normalizeOwner(value) {
   return owner.toLowerCase();
 }
 
-function sealForFcc(fileKey, { fccPublicKey, blobId, owner, storageMode, accessPolicy } = {}) {
+function sealForFcc(fileKey, { fccPublicKey, blobId, owner, storageMode, accessPolicy, metadata, metadataCommitment } = {}) {
   const recipient = bytes(fccPublicKey, "fccPublicKey");
   if (recipient.length !== 33 && recipient.length !== 65) throw new Error("fccPublicKey must be a compressed or uncompressed secp256k1 public key");
   const ephemeral = createECDH("secp256k1");
@@ -63,6 +63,8 @@ function sealForFcc(fileKey, { fccPublicKey, blobId, owner, storageMode, accessP
     owner,
     storageMode,
     accessPolicy,
+    metadataCommitment,
+    metadata,
     fileKey: hex(fileKey)
   }));
   const ciphertext = Buffer.concat([cipher.update(payload), cipher.final()]);
@@ -126,26 +128,37 @@ export async function prepareEncryptedBlob(input, {
   fccPublicKey,
   metadataCommitment = ZERO_BYTES32,
   metadata,
+  contentType = "application/octet-stream",
   allowedWallets = [],
   expirationSeconds,
   expiresAt = 0,
   blobId = hex(randomBytes(32))
 } = {}) {
+  if (!name) throw new Error("name is required for encrypted metadata");
   const resolvedBlobId = normalizeBlobId(blobId);
   const resolvedOwner = normalizeOwner(owner);
   const encrypted = await encryptBlob(input);
   const mode = typeof storageMode === "string" ? storageMode.toLowerCase().replace(/-/g, "_") : Number(storageMode);
   if (mode === STORAGE_MODES.public || mode === "public") throw new Error("encrypted preparation requires private or confidential storage");
-  const preliminaryPolicy = normalizePolicy({ storageMode, accessPolicy, keyEnvelopeCommitment: `0x${"01".padStart(64, "0")}`, metadataCommitment, allowedWallets });
+  const metadataValue = metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? { ...metadata, filename: metadata.filename || name, contentType: metadata.contentType || contentType }
+    : { value: metadata ?? null, filename: name, contentType };
+  const computedMetadataCommitment = sha256(Buffer.from(canonicalJson(metadataValue)));
+  if (metadataCommitment !== ZERO_BYTES32 && String(metadataCommitment).toLowerCase() !== computedMetadataCommitment) {
+    throw new Error("metadataCommitment does not match the encrypted metadata");
+  }
+  const resolvedMetadataCommitment = computedMetadataCommitment;
+  const preliminaryPolicy = normalizePolicy({ storageMode, accessPolicy, keyEnvelopeCommitment: `0x${"01".padStart(64, "0")}`, metadataCommitment: resolvedMetadataCommitment, allowedWallets });
   const keyEnvelope = sealForFcc(encrypted.fileKey, {
     fccPublicKey,
     blobId: resolvedBlobId,
     owner: resolvedOwner,
     storageMode: preliminaryPolicy.storageMode,
-    accessPolicy: preliminaryPolicy.accessPolicy
+    accessPolicy: preliminaryPolicy.accessPolicy,
+    metadata: metadataValue,
+    metadataCommitment: resolvedMetadataCommitment
   });
   const keyEnvelopeCommitment = sha256(Buffer.from(canonicalJson(keyEnvelope)));
-  const resolvedMetadataCommitment = metadata === undefined ? metadataCommitment : sha256(Buffer.from(canonicalJson(metadata)));
   const policy = normalizePolicy({
     storageMode,
     accessPolicy,
@@ -154,7 +167,7 @@ export async function prepareEncryptedBlob(input, {
     allowedWallets
   });
   const prepared = await prepareBlob(encrypted.ciphertext, {
-    name,
+    name: `private/${resolvedBlobId.slice(2)}`,
     expirationSeconds,
     expiresAt,
     blobId: resolvedBlobId

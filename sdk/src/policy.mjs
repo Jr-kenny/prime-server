@@ -31,8 +31,21 @@ function normalizeBytes32(value, field, { allowZero = true } = {}) {
   return normalized.toLowerCase();
 }
 
+function stableValue(value) {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .filter((key) => value[key] !== undefined)
+        .map((key) => [key, stableValue(value[key])])
+    );
+  }
+  return value;
+}
+
 export function canonicalJson(value) {
-  return JSON.stringify(value, Object.keys(value).sort());
+  return JSON.stringify(stableValue(value));
 }
 
 export function resolveStorageMode(value = "public") {

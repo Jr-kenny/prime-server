@@ -212,3 +212,27 @@ test("SDK binds a fresh device key to a replay-protected confidential access int
   assert.equal(writes[0].functionName, "authorizeConfidentialAccess");
   assert.equal(writes[0].args[1], signature);
 });
+
+test("SDK can retrieve ciphertext for a selected wallet through an owner-scoped route", async () => {
+  const requests = [];
+  const selectedWallet = "0x0000000000000000000000000000000000000003";
+  const owner = "0x0000000000000000000000000000000000000004";
+  const accessRequestId = `0x${"ab".repeat(32)}`;
+  const client = createPrimeServerClient({
+    baseUrl: "https://api.primeserver.example/prime/v1",
+    wallet: { address: selectedWallet },
+    token: "session-token",
+    fetchImpl: async (url, init = {}) => {
+      requests.push({ url, init });
+      return new Response(Buffer.from("ciphertext"), {
+        status: 200,
+        headers: { "content-type": "application/octet-stream", "x-prime-blob-id": `0x${"12".repeat(32)}` }
+      });
+    }
+  });
+
+  const result = await client.get("private/blob", { account: owner, accessRequestId });
+  assert.equal(result.bytes.length, 10);
+  assert.equal(requests[0].url, `${client.baseUrl}/blobs/${owner}/private%2Fblob`);
+  assert.equal(requests[0].init.headers.get("x-prime-access-request-id"), accessRequestId);
+});

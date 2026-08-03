@@ -4,6 +4,8 @@ Recorded on 2026-08-03 from the local Prime Server checkout.
 
 This run proves the new native paid and policy layers against a fresh Coston2 registry. It does not claim XRP settlement, live FCC key release, TEE attestation, or confidential compute.
 
+This is the pre-hardening paid proof. The registry source now adds duration pricing, a post-expiry provider reserve, stricter access expiry checks, and opaque private names. Those changes are locally verified and require a fresh Coston2 deployment before this document can be refreshed.
+
 ## Deployment
 
 | Field | Value |

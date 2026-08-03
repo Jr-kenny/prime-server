@@ -98,6 +98,33 @@ function requireAccountOwner(session, account) {
   if (session.address.toLowerCase() !== account.toLowerCase()) throw new GatewayError(403, "wallet does not own this account");
 }
 
+async function requireSelectedWalletCiphertextAccess({ request, session, account, object, registry }) {
+  if (session.address.toLowerCase() === account.toLowerCase()) return;
+  if (!object || ![1, "1", "selected_wallets"].includes(object.accessPolicy)) {
+    throw new GatewayError(403, "wallet is not authorized to retrieve this ciphertext");
+  }
+  const requestId = normalizeHex(request.headers["x-prime-access-request-id"]);
+  if (!/^[a-f0-9]{64}$/.test(requestId)) {
+    throw new GatewayError(403, "an active selected-wallet access request is required");
+  }
+  if (typeof registry.getConfidentialAccessRequest !== "function" || typeof registry.isConfidentialAccessUsable !== "function") {
+    throw new GatewayError(503, "selected-wallet ciphertext retrieval is not configured");
+  }
+  const access = await registry.getConfidentialAccessRequest(requestId);
+  if (!access?.exists || access.consumed || access.purpose !== 0) {
+    throw new GatewayError(403, "access request cannot retrieve ciphertext");
+  }
+  if (String(access.requester).toLowerCase() !== session.address.toLowerCase()) {
+    throw new GatewayError(403, "access request requester does not match the session wallet");
+  }
+  if (normalizeHex(access.blobId) !== normalizeHex(object.blobId)) {
+    throw new GatewayError(403, "access request does not match the blob");
+  }
+  if (!(await registry.isConfidentialAccessUsable(requestId))) {
+    throw new GatewayError(403, "access request is no longer usable");
+  }
+}
+
 function parseHeaderInteger(request, name, { required = false } = {}) {
   const value = request.headers[name];
   if (value === undefined) {
@@ -238,7 +265,7 @@ function applyCorsHeaders(response, origin) {
   response.setHeader("access-control-allow-methods", "GET,PUT,HEAD,POST,OPTIONS");
   response.setHeader(
     "access-control-allow-headers",
-    "authorization,content-type,range,x-prime-blob-id,x-prime-commitment,x-prime-chunk-size,x-prime-data-shards,x-prime-total-shards,x-prime-expires-at,x-prime-storage-mode,x-prime-access-policy,x-prime-policy-commitment,x-prime-key-envelope-commitment,x-prime-metadata-commitment"
+    "authorization,content-type,range,x-prime-blob-id,x-prime-commitment,x-prime-chunk-size,x-prime-data-shards,x-prime-total-shards,x-prime-expires-at,x-prime-storage-mode,x-prime-access-policy,x-prime-policy-commitment,x-prime-key-envelope-commitment,x-prime-metadata-commitment,x-prime-access-request-id"
   );
   response.setHeader("access-control-expose-headers", "content-range,etag,x-prime-blob-id,x-prime-name-hash,x-prime-expires-at,x-prime-recovered,x-prime-missing-shards,x-prime-storage-mode,x-prime-access-policy,x-prime-policy-commitment,x-prime-payment-status");
   response.setHeader("access-control-max-age", "600");
@@ -315,9 +342,9 @@ async function handleDeveloperRequest({
 
   const { account, name } = blobPath;
   const session = requireSession(request, authManager);
-  requireAccountOwner(session, account);
 
   if (name === null) {
+    requireAccountOwner(session, account);
     if (request.method !== "GET") throw new GatewayError(405, "method not allowed");
     const listing = await objectStore.listObjects(account, {
       prefix: requestUrl.searchParams.get("prefix") || "",
@@ -338,6 +365,7 @@ async function handleDeveloperRequest({
   if (object && object.expiresAt <= Math.floor(Date.now() / 1000)) throw new GatewayError(410, "blob has expired");
 
   if (request.method === "PUT") {
+    requireAccountOwner(session, account);
     if (object) throw new GatewayError(409, "blob name already exists");
     const blobId = requireBlobIdHeader(request);
     const registration = await registry.getBlob(blobId);
@@ -385,6 +413,7 @@ async function handleDeveloperRequest({
   }
 
   if (!object) throw new GatewayError(404, "blob not found");
+  await requireSelectedWalletCiphertextAccess({ request, session, account, object, registry });
   if (request.method === "HEAD") {
     response.writeHead(200, objectHeaders(object));
     response.end();

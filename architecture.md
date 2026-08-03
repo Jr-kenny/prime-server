@@ -68,6 +68,7 @@ The first contract is the source of truth for the demo network. It will support:
 - Blob finalization after the required acknowledgements arrive.
 - Recovery and rebuild records when a missing shard is recreated.
 - Native Flare payment quote, escrow, provider claim, refund, and protocol fee state.
+- Duration-priced native payment with a retained provider reserve for post-expiry settlement.
 - Storage mode, access policy, ciphertext key-envelope commitment, and metadata commitment.
 - Replay-protected confidential access intents signed by an authorized wallet and bound to a temporary device key.
 - Events for the RPC indexer and the demo evidence log.
@@ -120,7 +121,7 @@ The developer upload path has a registration-first boundary. The client encrypts
 
 The contract also exposes explicit operator creation methods for coordinator-owned internal objects. Those methods set the coordinator as owner and record `Operator` origin. They cannot assign a user wallet as the owner.
 
-Paid user creation holds the quoted native amount in registry escrow until finalization. Providers claim rewards for acknowledged placement shards. Recovery payouts are a separate settlement slice and are not included in the first claim path.
+Paid user creation holds the quoted native amount in registry escrow until finalization. The quote scales with remaining storage duration and storage mode. Providers claim the immediate reward for acknowledged placement shards after finalization. A retention reserve remains escrowed until expiry, then the assigned providers can claim it. The protocol fee is released after the full provider pool is settled.
 
 The target download path reads enough surviving shards to reconstruct the requested bytes. The current first implementation reconstructs the complete object and then applies HTTP range slicing, so efficient shard-range retrieval remains a separate slice. The developer API adds a JavaScript SDK, while multipart uploads and an S3-compatible gateway remain planned compatibility layers.
 
@@ -143,11 +144,13 @@ The repository includes an explicit `MemoryRegistry` adapter for local integrati
 
 ### 4.5 Policy and confidential access
 
-Public, private, and confidential blobs use the same provider and Clay data plane. Private and confidential clients encrypt before Clay encoding, so Prime RPC, providers, and the chain only receive the ciphertext commitment and encrypted bytes. The SDK creates an AES-GCM ciphertext and an ECIES-style envelope sealed to the configured FCC public key. The envelope commitment is recorded on Flare. The file key stays in client memory and inside the sealed envelope. It is never sent as plaintext to Prime RPC.
+Public, private, and confidential blobs use the same provider and Clay data plane. Private and confidential clients encrypt before Clay encoding, so Prime RPC, providers, and the chain only receive the ciphertext commitment and encrypted bytes. Private names are generated as opaque `private/<blobId>` identifiers. The original filename, content type, and supplied metadata are sealed inside the FCC envelope, while only their commitment is recorded on Flare. The SDK creates an AES-GCM ciphertext and an ECIES-style envelope sealed to the configured FCC public key. The envelope commitment is recorded on Flare. The file key stays in client memory and inside the sealed envelope. It is never sent as plaintext to Prime RPC.
 
 The registry records an access intent only after it verifies an EIP-712 wallet signature. The intent binds the blob ID, requester, device-key commitment, nonce, deadline, and purpose. The nonce prevents replay. A configured FCC access controller can consume the intent with a response commitment after it has rewrapped the file key for the temporary device key. This is the attested, verifiable, trust-minimized boundary. The repository does not claim a live FCC TEE result until the real extension and attestation flow is deployed.
 
-Confidential mode is compute-only. The developer read path refuses raw bytes for that mode until a verified FCC compute result exists. Private mode permits the owner or selected wallet to retrieve ciphertext for local decryption.
+The FCC adapter is isolated from the registry. `PrimeServerInstructionSender` validates the existing access intent, storage mode, device-key commitment, and sealed-envelope commitment, then forwards a typed instruction through Flare's `TeeExtensionRegistry` and `TeeMachineRegistry` interfaces. The local extension core opens the sealed envelope inside its handler, rewraps the file key for the device, or computes over ciphertext retrieved through an injected internal path. Its tests prove local behavior and payload binding. They do not replace code-hash approval, registered TEE identity, or live attestation.
+
+Confidential mode is compute-only. The developer read path refuses raw bytes for that mode until a verified FCC compute result exists. Private mode permits the owner or a selected wallet with an active view access intent to retrieve ciphertext for local decryption. The selected-wallet route never turns ciphertext retrieval into plaintext release.
 
 ## 5. Data model
 
@@ -207,8 +210,8 @@ signature          provider signature over the acknowledgement
 asset                  NativeFlare in the current implementation
 status                 escrowed before upload, claimable after finalization
 totalPaid              amount held by the registry
-providerPool           amount reserved for final placement providers
-providerRewardPerShard reward for one acknowledged shard
+providerPool           amount reserved for immediate rewards and retention reserve
+providerRewardPerShard immediate reward for one acknowledged shard
 protocolFee            fee released after provider settlement
 providerSettled        amount already claimed by providers
 quoteCommitment        chain and registry bound quote commitment
@@ -268,6 +271,8 @@ record acknowledgements on Flare
 finalize blob
         |
 release provider settlement claims
+        |
+retain the post-expiry provider reserve
         |
 provider failure detected
         |

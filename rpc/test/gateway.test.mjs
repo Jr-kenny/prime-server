@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { privateKeyToAccount } from "viem/accounts";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { PrimeAuthManager } from "../src/auth.mjs";
 import { MemoryRegistry } from "../src/memory-registry.mjs";
 import { JsonOperationalStore } from "../src/operational-store.mjs";
@@ -143,6 +143,41 @@ test("wallet-owned developer API supports put, list, head, get, and range reads"
       body: input
     });
     assert.equal(duplicate.status, 409);
+
+    const selectedWallet = privateKeyToAccount(generatePrivateKey());
+    const selectedChallenge = await (await fetch(`${baseUrl}/prime/v1/auth/challenge?address=${selectedWallet.address}`)).json();
+    const selectedSignature = await selectedWallet.signMessage({ message: selectedChallenge.message });
+    const selectedSession = await (await fetch(`${baseUrl}/prime/v1/auth/session`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ address: selectedWallet.address, nonce: selectedChallenge.nonce, signature: selectedSignature })
+    })).json();
+    const selectedObject = await objectStore.getObject(account.address, "hello.txt");
+    await objectStore.putObject({ ...selectedObject, accessPolicy: "selected_wallets" });
+    const selectedBlob = registry.getBlob(metadata.blobId);
+    selectedBlob.policy.accessPolicy = 1;
+    selectedBlob.policy.accessPolicyName = "selected_wallets";
+    await registry.setBlobWalletAccess({ blobId: metadata.blobId, wallet: selectedWallet.address, allowed: true });
+    const accessRequestId = "ab".repeat(32);
+    registry.seedConfidentialAccessRequest({
+      requestId: accessRequestId,
+      blobId: metadata.blobId,
+      requester: selectedWallet.address,
+      purpose: 0,
+      deadline: Math.floor(Date.now() / 1000) + 3600
+    });
+    const selectedGet = await fetch(`${baseUrl}/prime/v1/blobs/${account.address}/hello.txt`, {
+      headers: {
+        authorization: `Bearer ${selectedSession.token}`,
+        "x-prime-access-request-id": `0x${accessRequestId}`
+      }
+    });
+    assert.equal(selectedGet.status, 200);
+    assert.deepEqual(Buffer.from(await selectedGet.arrayBuffer()), input);
+    const missingAccessRequest = await fetch(`${baseUrl}/prime/v1/blobs/${account.address}/hello.txt`, {
+      headers: { authorization: `Bearer ${selectedSession.token}` }
+    });
+    assert.equal(missingAccessRequest.status, 403);
   } finally {
     if (rpc) await close(rpc.server);
     await stopProviderProcesses(suite);
