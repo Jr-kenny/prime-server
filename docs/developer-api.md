@@ -103,7 +103,7 @@ const listing = await prime.list({ prefix: "reports/" });
 const file = await prime.get("reports/hello.txt");
 ```
 
-`prime.put(...)` is a convenience wrapper around preparation, direct registration, and registered upload. The SDK requires a wallet client and registry address for that method.
+`prime.put(...)` is a convenience wrapper around preparation, direct registration, and registered upload. The SDK requires a wallet client, public client, and registry address because the upload must wait for a successful onchain registration receipt.
 
 ## Product boundary
 

@@ -74,3 +74,25 @@ test("SDK prepares the same commitment as the provider engine and uploads a regi
   assert.equal(Buffer.from(uploadRequest.init.body).length, input.length);
   assert.match(uploadRequest.init.headers.get("authorization"), /^Bearer session-token$/);
 });
+
+test("SDK requires a public client before registering a blob", async () => {
+  const input = Buffer.from("registration must be confirmed");
+  const client = createPrimeServerClient({
+    baseUrl: "https://api.primeserver.example/prime/v1",
+    wallet: { address },
+    registryAddress: "0x0000000000000000000000000000000000000002",
+    walletClient: {
+      account: { address },
+      async writeContract() {
+        return "0xregistration";
+      }
+    },
+    fetchImpl: async () => new Response("unexpected request", { status: 500 })
+  });
+
+  const prepared = await client.prepareBlob(input, { name: "agent/memory.json", expirationSeconds: 3600 });
+  await assert.rejects(
+    () => client.registerBlob(prepared),
+    /publicClient is required to confirm blob registration before upload/
+  );
+});

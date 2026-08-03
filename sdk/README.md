@@ -29,6 +29,6 @@ const file = await prime.get("reports/hello.txt");
 console.log(new TextDecoder().decode(file.bytes));
 ```
 
-`prepareBlob` computes the encoding and commitment locally. `registerBlob` sends the direct wallet transaction. `uploadRegisteredBlob` sends the original bytes after confirmation. The API session is used for access control and rate limiting, while the registry remains the source of ownership.
+`prepareBlob` computes the encoding and commitment locally. `registerBlob` sends the direct wallet transaction and requires `publicClient` so it can wait for a successful registration receipt. `uploadRegisteredBlob` sends the original bytes only after that confirmation. The API session is used for access control and rate limiting, while the registry remains the source of ownership.
 
 `prime.put(...)` is a convenience wrapper around the same flow.

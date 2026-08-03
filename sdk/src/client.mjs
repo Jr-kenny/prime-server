@@ -100,6 +100,7 @@ export class PrimeServerClient {
 
   async registerBlob(prepared) {
     if (!this.registryAddress || !this.walletClient) throw new Error("registryAddress and walletClient are required for direct blob registration");
+    if (!this.publicClient) throw new Error("publicClient is required to confirm blob registration before upload");
     if (!prepared?.blobId || !prepared.name || !prepared.commitment) throw new Error("prepared blob metadata is incomplete");
     const account = this.walletClient.account || this.wallet?.account || this.wallet?.address;
     if (!account) throw new Error("wallet account is required for direct blob registration");
@@ -119,9 +120,8 @@ export class PrimeServerClient {
         BigInt(prepared.expiresAt)
       ]
     });
-    const receipt = this.publicClient
-      ? await this.publicClient.waitForTransactionReceipt({ hash })
-      : null;
+    const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
+    if (receipt?.status && receipt.status !== "success") throw new Error("blob registration transaction failed");
     return { hash, receipt };
   }
 
