@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { startProviderProcesses, stopProviderProcesses } from "../../scripts/providers.mjs";
+import { startProviderProcesses, stopProviderProcesses, waitForProcessExit } from "../../scripts/providers.mjs";
 import { MemoryRegistry } from "../src/memory-registry.mjs";
 import { createPrimeRpcServer } from "../src/server.mjs";
 
@@ -57,10 +57,26 @@ test("Prime RPC uploads a real blob to four providers and verifies acknowledgeme
     }
 
     assert.equal(hash(input).length, 64);
+
+    const stopped = [suite.providers[1], suite.providers[3]];
+    const stoppedExits = stopped.map((provider) => waitForProcessExit(provider.child));
+    for (const provider of stopped) provider.child.kill("SIGTERM");
+    await Promise.all(stoppedExits);
+
+    const recovered = await fetch(`${baseUrl}/v1/blobs/${result.blobId}/content`);
+    assert.equal(recovered.status, 200);
+    assert.equal(recovered.headers.get("x-prime-recovered"), "true");
+    assert.equal(recovered.headers.get("x-prime-missing-shards"), "1,3");
+    assert.deepEqual(Buffer.from(await recovered.arrayBuffer()), input);
+
+    const range = await fetch(`${baseUrl}/v1/blobs/${result.blobId}/content`, {
+      headers: { range: "bytes=100-999" }
+    });
+    assert.equal(range.status, 206);
+    assert.deepEqual(Buffer.from(await range.arrayBuffer()), input.subarray(100, 1000));
   } finally {
     await close(rpc.server);
     await stopProviderProcesses(suite);
     await rm(root, { recursive: true, force: true });
   }
 });
-

@@ -152,7 +152,7 @@ Evidence: RPC integration test passed with a real 2 MiB blob, four provider proc
 
 ## Slice 6: Prime RPC read path
 
-Status: `pending`
+Status: `complete`
 
 Dependencies: Slice 5.
 
@@ -168,6 +168,8 @@ Acceptance:
 - Full download matches the source hash.
 - A range request matches the corresponding source byte range.
 - A corrupt shard is detected and excluded from reconstruction.
+
+Evidence: RPC integration test uploaded a real 2 MiB blob, stopped providers 2 and 4, reconstructed the blob from shards 0 and 2, and passed a byte-range read.
 
 ## Slice 7: Coston2 deployment
 
