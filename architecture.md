@@ -117,6 +117,8 @@ The coordinator is responsible for:
 
 The first local implementation may use SQLite for operational state. The protocol boundary must leave room for Postgres when the network becomes multi-hosted.
 
+The repository includes an explicit `MemoryRegistry` adapter for local integration tests. It verifies provider public-key signatures and enforces the same placement and acknowledgement rules without claiming to be Flare state. The production path will use a Flare contract adapter.
+
 ## 5. Data model
 
 ### Blob

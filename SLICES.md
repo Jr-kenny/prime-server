@@ -131,7 +131,7 @@ Evidence: `scripts/providers.mjs` starts and stops four isolated provider proces
 
 ## Slice 5: Prime RPC upload path
 
-Status: `pending`
+Status: `complete`
 
 Dependencies: Slice 1, Slice 3, and Slice 4.
 
@@ -145,8 +145,10 @@ Output:
 Acceptance:
 
 - A real file is written to all four provider data directories.
-- The registry contract records the blob and placement.
+- The explicit local registry adapter records the blob, placement, and verified acknowledgements.
 - The RPC refuses to finalize when an acknowledgement is missing.
+
+Evidence: RPC integration test passed with a real 2 MiB blob, four provider processes, four signed acknowledgements, and four stored shards. Coston2 contract writes remain in Slice 7.
 
 ## Slice 6: Prime RPC read path
 
