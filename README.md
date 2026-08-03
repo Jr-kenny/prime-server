@@ -14,7 +14,7 @@ The project is built around one visible proof:
 
 The first live proof is complete on Flare Coston2. A real 2 MiB blob was uploaded through Prime RPC, acknowledged by four provider processes, recovered after providers 2 and 4 were stopped, rebuilt, and read back with an identical SHA-256 hash. The registry address, transaction hashes, event counts, and limits of the local proof are recorded in [docs/evidence/coston2-live-proof.md](./docs/evidence/coston2-live-proof.md).
 
-The new paid, privacy, and FCC layers are locally verified against the contract and a real local EVM. The paid path records native escrow with registration, prices storage duration, pays immediate placement claims, and retains a post-expiry provider reserve. The SDK encrypts private and confidential blobs locally, seals recoverable metadata, and prepares an FCC-sealed key envelope. The separate FCC sender and extension core prove device-bound key rewrap and compute-result behavior locally. Live Coston2 evidence for the new registry build and live FCC attestation remain separate slices.
+The native paid path, provider failure, recovery, reassignment, and settlement are now live-verified against the corrected Coston2 registry. The SDK encrypts private and confidential blobs locally, seals recoverable metadata, and prepares an FCC-sealed key envelope. The separate FCC sender and extension core prove device-bound key rewrap and compute-result behavior locally. Live private ciphertext, FCC attestation, confidential key release, and XRP settlement remain separate slices.
 
 ## Start here
 
@@ -32,7 +32,7 @@ The new paid, privacy, and FCC layers are locally verified against the contract 
 - [docs/protocol-identity-notes.md](./docs/protocol-identity-notes.md) records the owner and named-blob protocol decisions.
 - [sdk/README.md](./sdk/README.md) shows how applications use Prime Server from JavaScript.
 
-The current corrected Coston2 registry deployment is recorded in [docs/evidence/coston2-settlement-reassignment-fix-deployment.md](./docs/evidence/coston2-settlement-reassignment-fix-deployment.md). The full provider, paid-storage, failure, recovery, and settlement proof still needs to be rerun against that address before it is presented as live proof for the frozen build.
+The current corrected Coston2 registry deployment is recorded in [docs/evidence/coston2-settlement-reassignment-fix-deployment.md](./docs/evidence/coston2-settlement-reassignment-fix-deployment.md). The live provider, paid-storage, failure, recovery, and settlement proof is recorded in [docs/evidence/coston2-live-provider-recovery-settlement-proof.md](./docs/evidence/coston2-live-provider-recovery-settlement-proof.md).
 
 ## Repository layout
 

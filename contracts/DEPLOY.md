@@ -17,7 +17,7 @@ The current frozen Coston2 registry deployment, including the recovery settlemen
 
 The source contract now includes `BlobOrigin`, native payment escrow, duration pricing, a post-expiry provider reserve, global per-shard settlement markers, storage policy, confidential access requests, `createOperatorBlob`, and `createOperatorBlobNamed`. The current build uses Solidity `0.8.24`, optimizer runs `100`, and via-IR compilation. Use the frozen deployment recorded in the settlement reassignment evidence. Do not point the RPC at an earlier proof address because its ABI and ownership boundary are different.
 
-The registry ABI and storage layout are frozen after the settlement reassignment fix. The corrected registry is deployed, while a new live paid-storage and recovery proof is still required before the complete build is described as live Coston2 infrastructure. FCC instruction transport and XRP, FDC, and FAssets settlement remain separate contracts or extensions.
+The registry ABI and storage layout are frozen after the settlement reassignment fix. The corrected registry is deployed, and the live provider, recovery, native payment, and settlement proof is recorded in [docs/evidence/coston2-live-provider-recovery-settlement-proof.md](../docs/evidence/coston2-live-provider-recovery-settlement-proof.md). FCC instruction transport and XRP, FDC, and FAssets settlement remain separate contracts or extensions.
 
 ## FCC instruction sender
 
