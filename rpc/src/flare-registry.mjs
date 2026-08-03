@@ -25,6 +25,15 @@ export function createCoston2Chain(rpcUrl, chainId = 114) {
   });
 }
 
+export function createCoston2Wallet({ privateKey, rpcUrl, chainId = 114 } = {}) {
+  const chain = createCoston2Chain(rpcUrl, chainId);
+  const account = privateKeyToAccount(normalizePrivateKey(privateKey));
+  const wallet = createWalletClient({ account, chain, transport: http(rpcUrl) })
+    .extend(publicActions)
+    .extend(walletActions);
+  return { account, chain, wallet };
+}
+
 export function createFlareRegistry({
   address,
   rpcUrl = "https://coston2-api.flare.network/ext/C/rpc",

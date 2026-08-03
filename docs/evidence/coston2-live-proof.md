@@ -2,26 +2,30 @@
 
 Recorded on 2026-08-03 from the local Prime Server checkout.
 
-This is a real four-process storage proof on Flare Coston2. The provider endpoints in this run use loopback addresses on the Mac. They prove process isolation and the protocol lifecycle. They are not public storage endpoints.
+These results come from two runs against the fresh registry below. The first run proves provider placement, shard loss, recovery, and rebuild. The second run proves the public registration-first wallet flow through the SDK and developer API.
+
+The provider endpoints in these runs use loopback addresses on the Mac. They prove process isolation and the protocol lifecycle. They are not public storage endpoints.
 
 ## Deployment
 
 | Field | Value |
 | --- | --- |
 | Chain ID | `114` |
-| Registry | `0x9864476bFFBe1d261419Bc6b1b6ec3c00CF65325` |
-| Deployment block | `33577929` |
-| Deployment transaction | `0x31c302a9c7985dbbd42625b5439f3045135ee9dd0bfe7de313131c6c931701f6` |
+| Registry | `0x5D80eb0675b4786D275bb5e2D8EE0172fBCd6444` |
+| Deployment block | `33582324` |
+| Deployment transaction | `0x999bea3a01ea4bad37ab62c244329d3db588d05bea352d3b1bef67afee746b84` |
 | Compiler | Solidity `0.8.24` |
-| Deployed bytecode | `7,716` bytes |
-| Local bytecode comparison | exact match |
+| Deployed runtime bytecode | `10,849` bytes |
+| Deployment receipt | success |
 
-## Storage run
+The ignored local `.env` now points Prime RPC and the proof harness at this registry. The previous registry remains historical only.
+
+## Four-provider recovery proof
 
 | Field | Value |
 | --- | --- |
-| Run ID | `coston2-1785756146860-80659` |
-| Blob ID | `ba2be5ea7080cc08ac587023e917e3f6cc80d1ebcd8a4d3e0f1cad5aaa7a7ee4` |
+| Run ID | `coston2-1785765872799-9253` |
+| Blob ID | `47dd5821d3bf0d6d1b6dca39245dc08132d7dbbca031e77c894b0fa9e5a000c2` |
 | Input size | `2,097,152` bytes |
 | Blob commitment | `aca59e156d14cc93c43c95d64116e36301419eb8de8b4dc4ad22e58b0e421270` |
 | Status after upload | `active` |
@@ -32,22 +36,20 @@ This is a real four-process storage proof on Flare Coston2. The provider endpoin
 | Recovered SHA-256 | `70a5aa60279a696319d492e948cc9ba794da0e9174b81ad1d702554502f4801f` |
 | Final SHA-256 | `70a5aa60279a696319d492e948cc9ba794da0e9174b81ad1d702554502f4801f` |
 
-The durable coordinator cursor ended at `33577995`. Its recovery job for this blob reached `succeeded` with one attempt and survived the complete request lifecycle. The operational state was written atomically to the ignored run directory.
+The input, recovered bytes, and final read matched exactly. The run preserved the removed shard files with a `.lost` suffix before rebuilding them. The durable operational cursor ended at block `33582404`, and the recovery job reached `succeeded` after one attempt.
 
-The input, recovered bytes, and final read matched exactly. The run preserved the removed shard files with a `.lost` suffix before rebuilding them.
-
-## Provider operators
+### Provider operators
 
 | Provider | Operator | Run endpoint |
 | --- | --- | --- |
-| `provider-1` | `0xe9D942623369279B69f34e527c54E01ae0f94965` | `http://127.0.0.1:7560` |
-| `provider-2` | `0xA439f317939A49c0ACf1020E5f2182602a35b76a` | `http://127.0.0.1:7561` |
-| `provider-3` | `0xCd647cd81c75D1Ad1524daB03a739629ED1F3223` | `http://127.0.0.1:7562` |
-| `provider-4` | `0x12dE344C457b8e8eD7c21c41D52b38a5ED971748` | `http://127.0.0.1:7563` |
+| `provider-1` | `0xe9D942623369279B69f34e527c54E01ae0f94965` | `http://127.0.0.1:7354` |
+| `provider-2` | `0xA439f317939A49c0ACf1020E5f2182602a35b76a` | `http://127.0.0.1:7355` |
+| `provider-3` | `0xCd647cd81c75D1Ad1524daB03a739629ED1F3223` | `http://127.0.0.1:7356` |
+| `provider-4` | `0x12dE344C457b8e8eD7c21c41D52b38a5ED971748` | `http://127.0.0.1:7357` |
 
-## Event evidence
+### Event evidence
 
-The Coston2 event indexer read 22 events from block `33577930` through the run tip. The cursor was persisted by the operational store.
+The event indexer read the following events from block `33582343` through the run tip and persisted its cursor:
 
 | Event | Count |
 | --- | ---: |
@@ -59,35 +61,50 @@ The Coston2 event indexer read 22 events from block `33577930` through the run t
 | `RecoveryStarted` | 2 |
 | `ShardRebuilt` | 2 |
 
-## Key transactions
-
-Provider registration transactions:
+### Recovery transactions
 
 ```text
-provider-1  0xf91342f75f56e31b232fae9ef70bdd767b2defbec2e601bea75a1aed3685af94
-provider-2  0xf69d99743ef6dd282cbe1b91728c099ffa7067f9a08b43a5d12626eb2656ce2f
-provider-3  0xe4cd5d26f281979aec19337de2bcdc0b6f6bfcc635ac6e0eb297f8349e2ba636
-provider-4  0x6ed2a55a307025ea5a9515a8dfb76b430831b453bed1c50500c6ecf62a9c8907
+createOperatorBlob  0x32790baed2eebb6c0ec57b89befbd6cfded09b9ea9916c269f7304cfea47b507
+finalizeBlob        0xd17c64056846006b8eadadcdb138e9d6bb3680ac27e77faa1f970bc0c9725726
+startRecovery       0x0bd413c876f4df7d38795044d15febde59fb7be75b12a7aa5274ca0a3db72fb3
+reassignShard       0xa41c58fb2fd5c98b06fd356c96a86a93486e78a2d4fccd7cfb7e24f3085825cd
+acknowledgeShard    0x3db2c0f176adecdf4b0f79c0e622e01e4ddfe1e075d2be84fb289407fe436643
+recordRebuiltShard  0xa93616d7915fe750a22fcc72000f3f62563032797ed54dee491b34621fd6086d
+startRecovery       0x0a82d3afc899cf21bbaf2d994ffa261ff250fd90e2e5513f95cb531f18607916
+reassignShard       0xb98948b881861feec012211d6556bbe68603b213c2234ba77f10bd699b804d3b
+acknowledgeShard    0xab272282f2741e8ed2aadee2fb97c27fcbf83624960634d0a9486c4cbba39627
+recordRebuiltShard  0x860075f6b810399125cf5a46f9e4c6645b9fcfe6586e706de94724469a281015
 ```
 
-Blob creation and finalization:
+## Direct-wallet developer API proof
 
-```text
-createBlob    0x8e3eec0aefccc557aca904bebee7d78d333d0ee856faf453e5f1c93805ca9d9c
-finalizeBlob  0x6f4129c972094c10ae861edb5f32fd9823a07d06745c7bf620c7d7ae08473abc
-```
+This run uses `scripts/coston2-registered-demo.mjs`. It generates a temporary wallet that is different from the deployer, funds it on Coston2, computes the Clay commitment locally, calls `createBlobNamed` from that wallet, waits for the successful receipt through `@prime-server/sdk`, and then uploads the original bytes through `/prime/v1`.
 
-Recovery and rebuild transactions:
+| Field | Value |
+| --- | --- |
+| Run ID | `coston2-registered-1785766127070-9946` |
+| User wallet | `0x40287B88cD7B4887206002f6ebBC6969e0c0928f` |
+| Blob ID | `0x22364ae45b2d4f6c3d882b22501b8ff370b0fe139b85d4720793a4a08a5dd4f1` |
+| Blob name | `live/direct-wallet-coston2-registered-1785766127070-9946.bin` |
+| Input size | `262,144` bytes |
+| Registration transaction | `0xe5cb9503f6b79472fc3ce660ca60e46490a3509fd244695d2709b31f45bb2ffd` |
+| Registration block | `33582497` |
+| Registration receipt | success |
+| Owner read from Flare | same user wallet |
+| Origin read from Flare | `user` |
+| Status before upload | `pending` |
+| Status after upload | `active` |
+| Acknowledgements | `4` |
+| Input SHA-256 | `76adfd3e3d37b0f3bcae509fd2afbcd668a291b8ab755703c08933235078241d` |
+| Downloaded SHA-256 | `76adfd3e3d37b0f3bcae509fd2afbcd668a291b8ab755703c08933235078241d` |
+| Range response | `206`, bytes `0-1023` |
 
-```text
-startRecovery       0x7ec12c554d492d685ef23f62521c5f72573570d18808fcd1858c5ba45510e7f8
-reassignShard       0xbb4cda9ed99eedaf657b85beb5db36f234b1e2cec078a4cc8142953cf8b7cea9
-acknowledgeShard    0x45eac56168c74a4c036915793c0c5d77245c351e1cdf3038b0b55dc9237127a7
-recordRebuiltShard  0x9d85c7423a73421bde0a9ca459e8cf58840bd547c931e750648794b2ffe96e4c
-startRecovery       0x59f2c7c860075882f91e145ba712ba2a632e031bc6266e0a1c4641c4ef758710
-reassignShard       0xe9cdfb03ac84c28767686a8f68073632b31cfd8cca04fabcb69d3f68e09eb272
-acknowledgeShard    0x2d4e4a160036d6a68f488fc8aea84c8493e5f084a149f40bb468e8fdc2564317
-recordRebuiltShard  0x919a6dcc1b4cdcfc81ef6f82f2b353e6b5063ba6b4ae6adc3b42cd239a17a9ee
-```
+The direct registration was confirmed before the SDK sent the upload request. The downloaded object matched the input byte-for-byte, and the range response matched the first 1,024 bytes.
 
-The complete machine-readable record, including all assignment and acknowledgement transactions plus the persisted operational state, lives at `.prime-server/evidence/coston2/coston2-1785756146860-80659.json` and remains ignored by Git because it contains local paths.
+## Machine-readable records
+
+The complete recovery record is `.prime-server/evidence/coston2/coston2-1785765872799-9253.json`.
+
+The complete direct-wallet record is `.prime-server/evidence/coston2/coston2-registered-1785766127070-9946.json`.
+
+These files remain ignored by Git because they contain local provider paths and temporary runtime details.

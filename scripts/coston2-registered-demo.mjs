@@ -1,17 +1,9 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import {
-  createWalletClient,
-  http,
-  parseEther,
-  publicActions,
-  walletActions
-} from "viem";
-import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { PrimeAuthManager } from "../rpc/src/auth.mjs";
-import { createFlareRegistry } from "../rpc/src/flare-registry.mjs";
+import { createCoston2Wallet, createFlareRegistry } from "../rpc/src/flare-registry.mjs";
 import { JsonOperationalStore } from "../rpc/src/operational-store.mjs";
 import { createPrimeRpcServer } from "../rpc/src/server.mjs";
 import { createPrimeServerClient } from "../sdk/src/client.mjs";
@@ -45,10 +37,6 @@ async function loadConfig() {
 function requireConfig(config, name) {
   if (!config[name]) throw new Error(`${name} is required in .env`);
   return config[name];
-}
-
-function normalizePrivateKey(value) {
-  return value.startsWith("0x") ? value : `0x${value}`;
 }
 
 function sha256(bytes) {
@@ -119,24 +107,30 @@ async function main() {
     const rpcPort = rpc.server.address().port;
     const baseUrl = `http://127.0.0.1:${rpcPort}/prime/v1`;
 
-    const deployerAccount = privateKeyToAccount(normalizePrivateKey(deployerPrivateKey));
-    const deployerWallet = createWalletClient({
-      account: deployerAccount,
-      chain: registry.chain,
-      transport: http(rpcUrl)
-    }).extend(publicActions).extend(walletActions);
-    const userAccount = privateKeyToAccount(generatePrivateKey());
+    const { wallet: deployerWallet } = createCoston2Wallet({
+      privateKey: deployerPrivateKey,
+      rpcUrl,
+      chainId
+    });
+    let userWalletData;
+    while (!userWalletData) {
+      try {
+        userWalletData = createCoston2Wallet({
+          privateKey: `0x${randomBytes(32).toString("hex")}`,
+          rpcUrl,
+          chainId
+        });
+      } catch (error) {
+        if (!String(error?.message || error).toLowerCase().includes("private key")) throw error;
+      }
+    }
+    const { account: userAccount, wallet: userWallet } = userWalletData;
     const fundingHash = await deployerWallet.sendTransaction({
       to: userAccount.address,
-      value: parseEther("0.01")
+      value: 1_000_000_000_000_000_000n
     });
     const fundingReceipt = await publicClient.waitForTransactionReceipt({ hash: fundingHash });
 
-    const userWallet = createWalletClient({
-      account: userAccount,
-      chain: registry.chain,
-      transport: http(rpcUrl)
-    }).extend(publicActions).extend(walletActions);
     const client = createPrimeServerClient({
       baseUrl,
       wallet: {
@@ -192,7 +186,7 @@ async function main() {
       },
       funding: {
         user: userAccount.address,
-        amount: "0.01 C2FLR",
+        amount: "1 C2FLR",
         transaction: fundingHash,
         blockNumber: fundingReceipt.blockNumber?.toString() || null,
         status: fundingReceipt.status
