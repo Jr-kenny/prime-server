@@ -41,6 +41,7 @@ contracts/   Flare smart contracts and Foundry configuration
 provider/    Storage provider daemon and local shard storage
 rpc/         Prime RPC and wallet-owned developer gateway
 sdk/         JavaScript client for the developer gateway
+ui/          React explorer and staged wallet-owned upload flow
 scripts/     Local network, deployment, and demo orchestration
 docs/        Demo script and project decisions
 test/        Cross-component and recovery tests
@@ -49,6 +50,18 @@ test/        Cross-component and recovery tests
 ## Core rule
 
 Every claim about Prime Server must be marked as implemented, locally verified, deployed, or planned. A simulated provider, fake receipt, or UI label is not proof of storage or settlement.
+
+## Run the product UI
+
+The explorer and upload flow live in `ui/`. Copy `ui/.env.example` to `ui/.env`, set the corrected Coston2 registry address, deployment block, and Prime RPC URL, then run:
+
+```bash
+cd ui
+npm install
+npm run dev
+```
+
+The interface computes the Clay commitment in the browser, submits `createBlobNamed` from the connected wallet, waits for its Coston2 receipt, uploads to Prime RPC, and reads placement and acknowledgement progress from the registry. The explorer has overview, blobs, events, providers, recovery, and per-blob placement views. Preview explorer data is visibly labeled and can be disabled with `VITE_DEMO_MODE=false`.
 
 ## Run the live proof
 
