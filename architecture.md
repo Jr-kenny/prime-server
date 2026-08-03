@@ -115,7 +115,7 @@ The coordinator is responsible for:
 - Scheduling recovery and rebuild work.
 - Writing a human-readable evidence record for every demo run.
 
-The first local implementation may use SQLite for operational state. The protocol boundary must leave room for Postgres when the network becomes multi-hosted.
+The current single-coordinator implementation uses an atomic JSON operational store for its cursor and recovery queue. The protocol boundary leaves room for SQLite or Postgres when the network becomes multi-hosted.
 
 The repository includes an explicit `MemoryRegistry` adapter for local integration tests. It verifies provider public-key signatures and enforces the same placement and acknowledgement rules without claiming to be Flare state. The production path will use a Flare contract adapter.
 
@@ -267,7 +267,7 @@ Verified before implementation in this repository:
 Repository status:
 
 - Scaffold created: 2026-08-03.
-- PrimeServerRegistry deployed to Coston2 at `0x0cF2205c21BdF773Bb104aA03f553F122416B7ac` in block `33577496`.
+- PrimeServerRegistry deployed to Coston2 at `0x9864476bFFBe1d261419Bc6b1b6ec3c00CF65325` in block `33577929`.
 - A live 2 MiB upload, two-provider failure, reconstruction, shard rebuild, and final hash proof passed on Coston2.
 - No public endpoint exists yet.
 - The local proof does not make a production storage or payment claim. Its exact evidence is recorded in `docs/evidence/coston2-live-proof.md`.

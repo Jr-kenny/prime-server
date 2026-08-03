@@ -2,7 +2,7 @@ import { parseEventLogs } from "viem";
 import { primeServerRegistryAbi } from "./registry-abi.mjs";
 
 export class PrimeServerEventIndexer {
-  constructor({ publicClient, address, fromBlock = 0n, maxBlockRange = 30n } = {}) {
+  constructor({ publicClient, address, fromBlock = 0n, maxBlockRange = 30n, stateStore, cursorKey } = {}) {
     if (!publicClient) throw new Error("publicClient is required");
     if (!address) throw new Error("registry address is required");
     if (BigInt(maxBlockRange) < 1n) throw new Error("maxBlockRange must be positive");
@@ -10,10 +10,27 @@ export class PrimeServerEventIndexer {
     this.address = address;
     this.nextBlock = BigInt(fromBlock);
     this.maxBlockRange = BigInt(maxBlockRange);
+    this.stateStore = stateStore || null;
+    this.cursorKey = cursorKey || address;
     this.events = [];
+    this.readyPromise = null;
+  }
+
+  async ready() {
+    if (!this.readyPromise) {
+      this.readyPromise = (async () => {
+        if (!this.stateStore) return;
+        await this.stateStore.ready();
+        const storedCursor = await this.stateStore.getCursor(this.cursorKey);
+        if (storedCursor !== null) this.nextBlock = BigInt(storedCursor);
+      })();
+    }
+    await this.readyPromise;
+    return this;
   }
 
   async poll(toBlock) {
+    await this.ready();
     const latest = toBlock === undefined ? await this.publicClient.getBlockNumber() : BigInt(toBlock);
     if (latest < this.nextBlock) return [];
     const records = [];
@@ -31,8 +48,10 @@ export class PrimeServerEventIndexer {
         logIndex: event.logIndex
       })));
     }
+    const nextBlock = latest + 1n;
+    if (this.stateStore) await this.stateStore.setCursor(this.cursorKey, nextBlock);
     this.events.push(...records);
-    this.nextBlock = latest + 1n;
+    this.nextBlock = nextBlock;
     return records;
   }
 

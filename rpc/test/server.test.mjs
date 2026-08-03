@@ -6,7 +6,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { startProviderProcess, startProviderProcesses, stopProviderProcesses, waitForProcessExit } from "../../scripts/providers.mjs";
 import { MemoryRegistry } from "../src/memory-registry.mjs";
-import { createPrimeRpcServer } from "../src/server.mjs";
+import { JsonOperationalStore } from "../src/operational-store.mjs";
+import { PrimeServerRecoveryCoordinator } from "../src/recovery-coordinator.mjs";
+import { createPrimeRpcServer, rebuildBlob } from "../src/server.mjs";
 
 function hash(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -30,7 +32,18 @@ test("Prime RPC uploads a real blob to four providers and verifies acknowledgeme
     logRoot: path.join(root, "logs")
   });
   const registry = new MemoryRegistry();
-  const rpc = await createPrimeRpcServer({ providers: suite.providers, registry });
+  const operationalStore = new JsonOperationalStore(path.join(root, "operational-state.json"));
+  let rpc;
+  const recoveryCoordinator = new PrimeServerRecoveryCoordinator({
+    store: operationalStore,
+    recover: async (blobId) => rebuildBlob({
+      blobId,
+      providers: suite.providers,
+      registry,
+      erasureEngine: rpc.erasureEngine
+    })
+  });
+  rpc = await createPrimeRpcServer({ providers: suite.providers, registry, recoveryCoordinator });
   const baseUrl = await listen(rpc.server);
   const input = Buffer.alloc(2 * 1024 * 1024);
   for (let index = 0; index < input.length; index += 1) input[index] = (index * 29 + 11) % 256;
@@ -96,6 +109,10 @@ test("Prime RPC uploads a real blob to four providers and verifies acknowledgeme
     const rebuildResult = await rebuild.json();
     assert.deepEqual(rebuildResult.rebuiltShards.map((shard) => shard.shardIndex), [1, 3]);
     assert.equal(rebuildResult.status, "rebuilt");
+    const repeatedRebuild = await fetch(`${baseUrl}/v1/blobs/${result.blobId}/recover`, { method: "POST" });
+    assert.equal(repeatedRebuild.status, 200);
+    assert.deepEqual(await repeatedRebuild.json(), rebuildResult);
+    assert.equal((await operationalStore.getRecoveryJob(result.blobId)).status, "succeeded");
 
     const final = await fetch(`${baseUrl}/v1/blobs/${result.blobId}/content`);
     assert.equal(final.status, 200);

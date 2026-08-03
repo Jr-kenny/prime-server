@@ -190,11 +190,11 @@ Acceptance:
 - A provider registration and blob creation transaction are independently readable.
 - The local evidence record contains chain ID, contract address, block numbers, and transaction hashes.
 
-Current output: the registry is deployed to Coston2 at `0x0cF2205c21BdF773Bb104aA03f553F122416B7ac`. The deployment succeeded in block `33577496`, the transaction hash is recorded in `docs/evidence/coston2-live-proof.md`, and the live bytecode matches the Solidity `0.8.24` build at 7,716 bytes. Four funded provider operators registered successfully and a real blob lifecycle was independently read from the chain.
+Current output: the registry is deployed to Coston2 at `0x9864476bFFBe1d261419Bc6b1b6ec3c00CF65325`. The deployment succeeded in block `33577929`, the transaction hash is recorded in `docs/evidence/coston2-live-proof.md`, and the live bytecode matches the Solidity `0.8.24` build at 7,716 bytes. Four funded provider operators registered successfully and a real blob lifecycle was independently read from the chain.
 
 ## Slice 8: event indexer and recovery coordinator
 
-Status: `in progress`
+Status: `complete`
 
 Dependencies: Slice 6 and Slice 7.
 
@@ -212,9 +212,7 @@ Acceptance:
 - A failed provider creates a recoverable job.
 - A recovery job can be retried safely.
 
-Current output: `rpc/src/event-indexer.mjs` polls and parses registry events with a block cursor, using 30-block windows for the Coston2 log limit. `POST /v1/blobs/:blobId/recover` reconstructs missing shards, restarts the storage path, records rebuilt state, and verifies the final read.
-
-Remaining: persist the cursor and recovery queue in an operational store and add retry evidence across coordinator restarts.
+Current output: `rpc/src/event-indexer.mjs` persists its cursor through `rpc/src/operational-store.mjs`, using 30-block windows for the Coston2 log limit. `PrimeServerRecoveryCoordinator` stores recovery jobs with leases, retry state, and completed results. `POST /v1/blobs/:blobId/recover` is queue-backed and idempotent. The live Coston2 run persisted its cursor, completed one recovery job, and recorded the result in the evidence bundle.
 
 ## Slice 9: end-to-end failure proof
 

@@ -4,7 +4,9 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createFlareRegistry } from "../rpc/src/flare-registry.mjs";
 import { PrimeServerEventIndexer } from "../rpc/src/event-indexer.mjs";
-import { createPrimeRpcServer } from "../rpc/src/server.mjs";
+import { JsonOperationalStore } from "../rpc/src/operational-store.mjs";
+import { PrimeServerRecoveryCoordinator } from "../rpc/src/recovery-coordinator.mjs";
+import { createPrimeRpcServer, rebuildBlob } from "../rpc/src/server.mjs";
 import {
   startProviderProcess,
   startProviderProcesses,
@@ -113,7 +115,19 @@ async function main() {
     dataRoot: path.join(runtimeRoot, "providers"),
     logRoot: path.join(runtimeRoot, "logs")
   });
+  const operationalStatePath = path.join(runtimeRoot, "operational-state.json");
+  const operationalStore = new JsonOperationalStore(operationalStatePath);
   let rpc;
+  const recoveryCoordinator = new PrimeServerRecoveryCoordinator({
+    store: operationalStore,
+    workerId: `coston2-demo-${process.pid}`,
+    recover: async (blobId) => rebuildBlob({
+      blobId,
+      providers: suite.providers,
+      registry,
+      erasureEngine: rpc.erasureEngine
+    })
+  });
 
   try {
     const bytecode = await publicClient.getBytecode({ address: registryAddress });
@@ -122,9 +136,10 @@ async function main() {
     const indexer = new PrimeServerEventIndexer({
       publicClient,
       address: registryAddress,
-      fromBlock: runStartBlock + 1n
+      fromBlock: runStartBlock + 1n,
+      stateStore: operationalStore
     });
-    rpc = await createPrimeRpcServer({ providers: suite.providers, registry });
+    rpc = await createPrimeRpcServer({ providers: suite.providers, registry, recoveryCoordinator });
     await new Promise((resolve) => rpc.server.listen(0, "127.0.0.1", resolve));
     const rpcPort = rpc.server.address().port;
     const rpcBaseUrl = `http://127.0.0.1:${rpcPort}`;
@@ -230,6 +245,11 @@ async function main() {
         result: rebuild.body,
         lostShardFiles,
         transactions: rebuildJournal
+      },
+      operationalState: {
+        path: operationalStatePath,
+        cursor: await operationalStore.getCursor(registryAddress),
+        recoveryJobs: await recoveryCoordinator.listJobs()
       },
       final: {
         sha256: finalHash,

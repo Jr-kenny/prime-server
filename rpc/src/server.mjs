@@ -211,7 +211,7 @@ export async function uploadBlob({ input, providers, registry, erasureEngine, ow
   };
 }
 
-export async function createPrimeRpcServer({ providers, registry, erasureEngine } = {}) {
+export async function createPrimeRpcServer({ providers, registry, erasureEngine, recoveryCoordinator } = {}) {
   if (!providers?.length) throw new Error("providers are required");
   if (!registry) throw new Error("registry is required");
   const engine = erasureEngine || await createErasureEngine(FOUR_PROVIDER_CONFIG);
@@ -232,6 +232,14 @@ export async function createPrimeRpcServer({ providers, registry, erasureEngine 
         json(res, 200, { status: "ok", providerCount: providers.length });
         return;
       }
+      if (req.method === "GET" && requestUrl.pathname === "/v1/recovery") {
+        if (!recoveryCoordinator) {
+          json(res, 200, { jobs: [] });
+          return;
+        }
+        json(res, 200, { jobs: await recoveryCoordinator.listJobs() });
+        return;
+      }
       if (req.method === "POST" && requestUrl.pathname === "/v1/blobs") {
         const input = await readRequestBody(req);
         const result = await uploadBlob({ input, providers, registry, erasureEngine: engine });
@@ -240,7 +248,9 @@ export async function createPrimeRpcServer({ providers, registry, erasureEngine 
       }
       const recoveryMatch = requestUrl.pathname.match(/^\/v1\/blobs\/([A-Za-z0-9._-]+)\/recover$/);
       if (req.method === "POST" && recoveryMatch) {
-        const result = await rebuildBlob({ blobId: recoveryMatch[1], providers, registry, erasureEngine: engine });
+        const result = recoveryCoordinator
+          ? await recoveryCoordinator.recoverBlob({ blobId: recoveryMatch[1], reason: "api_request" })
+          : await rebuildBlob({ blobId: recoveryMatch[1], providers, registry, erasureEngine: engine });
         json(res, 200, result);
         return;
       }

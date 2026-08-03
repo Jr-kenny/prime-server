@@ -9,9 +9,9 @@ This is a real four-process storage proof on Flare Coston2. The provider endpoin
 | Field | Value |
 | --- | --- |
 | Chain ID | `114` |
-| Registry | `0x0cF2205c21BdF773Bb104aA03f553F122416B7ac` |
-| Deployment block | `33577496` |
-| Deployment transaction | `0xe46308a2a745e822ec36108e1abc6964ae8ba7332a5272c575d585c3632bf59d` |
+| Registry | `0x9864476bFFBe1d261419Bc6b1b6ec3c00CF65325` |
+| Deployment block | `33577929` |
+| Deployment transaction | `0x31c302a9c7985dbbd42625b5439f3045135ee9dd0bfe7de313131c6c931701f6` |
 | Compiler | Solidity `0.8.24` |
 | Deployed bytecode | `7,716` bytes |
 | Local bytecode comparison | exact match |
@@ -20,8 +20,8 @@ This is a real four-process storage proof on Flare Coston2. The provider endpoin
 
 | Field | Value |
 | --- | --- |
-| Run ID | `coston2-1785755331585-77466` |
-| Blob ID | `51e2662ed8e12a986160fb2bc53e4546a0cb3138c9af498040a71ce19a9adb6b` |
+| Run ID | `coston2-1785756146860-80659` |
+| Blob ID | `ba2be5ea7080cc08ac587023e917e3f6cc80d1ebcd8a4d3e0f1cad5aaa7a7ee4` |
 | Input size | `2,097,152` bytes |
 | Blob commitment | `aca59e156d14cc93c43c95d64116e36301419eb8de8b4dc4ad22e58b0e421270` |
 | Status after upload | `active` |
@@ -32,20 +32,22 @@ This is a real four-process storage proof on Flare Coston2. The provider endpoin
 | Recovered SHA-256 | `70a5aa60279a696319d492e948cc9ba794da0e9174b81ad1d702554502f4801f` |
 | Final SHA-256 | `70a5aa60279a696319d492e948cc9ba794da0e9174b81ad1d702554502f4801f` |
 
+The durable coordinator cursor ended at `33577995`. Its recovery job for this blob reached `succeeded` with one attempt and survived the complete request lifecycle. The operational state was written atomically to the ignored run directory.
+
 The input, recovered bytes, and final read matched exactly. The run preserved the removed shard files with a `.lost` suffix before rebuilding them.
 
 ## Provider operators
 
 | Provider | Operator | Run endpoint |
 | --- | --- | --- |
-| `provider-1` | `0xe9D942623369279B69f34e527c54E01ae0f94965` | `http://127.0.0.1:7567` |
-| `provider-2` | `0xA439f317939A49c0ACf1020E5f2182602a35b76a` | `http://127.0.0.1:7568` |
-| `provider-3` | `0xCd647cd81c75D1Ad1524daB03a739629ED1F3223` | `http://127.0.0.1:7569` |
-| `provider-4` | `0x12dE344C457b8e8eD7c21c41D52b38a5ED971748` | `http://127.0.0.1:7570` |
+| `provider-1` | `0xe9D942623369279B69f34e527c54E01ae0f94965` | `http://127.0.0.1:7560` |
+| `provider-2` | `0xA439f317939A49c0ACf1020E5f2182602a35b76a` | `http://127.0.0.1:7561` |
+| `provider-3` | `0xCd647cd81c75D1Ad1524daB03a739629ED1F3223` | `http://127.0.0.1:7562` |
+| `provider-4` | `0x12dE344C457b8e8eD7c21c41D52b38a5ED971748` | `http://127.0.0.1:7563` |
 
 ## Event evidence
 
-The Coston2 event indexer read 22 events from block `33577497` through the run tip.
+The Coston2 event indexer read 22 events from block `33577930` through the run tip. The cursor was persisted by the operational store.
 
 | Event | Count |
 | --- | ---: |
@@ -62,30 +64,30 @@ The Coston2 event indexer read 22 events from block `33577497` through the run t
 Provider registration transactions:
 
 ```text
-provider-1  0xb1688403d240a75fd1cf1f493fa3f04cf6912740d9b0b45fb9b2d18c8581dbc1
-provider-2  0xe1687d485fb96f01b77a9d4c338cbf21ababac582008d069d9d4854a86e7e904
-provider-3  0x46e356fa3944465d5092164c5b695d1610cc8ca870f832a281884f778dd139da
-provider-4  0xedc500518798cfbcc82431c0845f5eafa64f3077d59ca480c3f2c1917bcef41f
+provider-1  0xf91342f75f56e31b232fae9ef70bdd767b2defbec2e601bea75a1aed3685af94
+provider-2  0xf69d99743ef6dd282cbe1b91728c099ffa7067f9a08b43a5d12626eb2656ce2f
+provider-3  0xe4cd5d26f281979aec19337de2bcdc0b6f6bfcc635ac6e0eb297f8349e2ba636
+provider-4  0x6ed2a55a307025ea5a9515a8dfb76b430831b453bed1c50500c6ecf62a9c8907
 ```
 
 Blob creation and finalization:
 
 ```text
-createBlob    0x9ffd3d39e551dfb0fb54422c55e8e6aecf9f624b9dba3cfadafb159fc97e1945
-finalizeBlob  0xcbdf6bb2db514f0bf868ed95c89e54dfcd9e4285ed52c50311f29c6704ac7927
+createBlob    0x8e3eec0aefccc557aca904bebee7d78d333d0ee856faf453e5f1c93805ca9d9c
+finalizeBlob  0x6f4129c972094c10ae861edb5f32fd9823a07d06745c7bf620c7d7ae08473abc
 ```
 
 Recovery and rebuild transactions:
 
 ```text
-startRecovery       0x5808ca9586d380ec5ec1b07052527892b3120a60aa4ece0fd9fc07a2db7f9d4d
-reassignShard       0x6c2c236a25bb641f4adef51bde3796274cea04f559d44dda78fbea2ce5b69f79
-acknowledgeShard    0x9f9dcfd81ad9efd5ef6c206fbf1f2d351cc8bcb8943c16269e44d22a58b3b5d4
-recordRebuiltShard  0x65d4467b7e57250a111e336ab70dc6b4b449b6ea60cf9241ebd802adf71af79b
-startRecovery       0x7539a36ce0f3a7df96779510ea74419a39392bc80edc29fcc0a5677e128a4190
-reassignShard       0x77ca50e346f0db05285ef3685d4bfb6bcfe1638f784c125102314da42857a2f0
-acknowledgeShard    0xa89ce8f51c91f3de3d2a31f011fb728917aecb438f000d209b66619b37e8d762
-recordRebuiltShard  0xaea5d8c6d4d9b4fea0b83aee120a0cf3687517e95d0f44e23ea51897852ef2ef
+startRecovery       0x7ec12c554d492d685ef23f62521c5f72573570d18808fcd1858c5ba45510e7f8
+reassignShard       0xbb4cda9ed99eedaf657b85beb5db36f234b1e2cec078a4cc8142953cf8b7cea9
+acknowledgeShard    0x45eac56168c74a4c036915793c0c5d77245c351e1cdf3038b0b55dc9237127a7
+recordRebuiltShard  0x9d85c7423a73421bde0a9ca459e8cf58840bd547c931e750648794b2ffe96e4c
+startRecovery       0x59f2c7c860075882f91e145ba712ba2a632e031bc6266e0a1c4641c4ef758710
+reassignShard       0xe9cdfb03ac84c28767686a8f68073632b31cfd8cca04fabcb69d3f68e09eb272
+acknowledgeShard    0x2d4e4a160036d6a68f488fc8aea84c8493e5f084a149f40bb468e8fdc2564317
+recordRebuiltShard  0x919a6dcc1b4cdcfc81ef6f82f2b353e6b5063ba6b4ae6adc3b42cd239a17a9ee
 ```
 
-The complete machine-readable record, including all assignment and acknowledgement transactions, lives at `.prime-server/evidence/coston2/coston2-1785755331585-77466.json` and remains ignored by Git because it contains local paths.
+The complete machine-readable record, including all assignment and acknowledgement transactions plus the persisted operational state, lives at `.prime-server/evidence/coston2/coston2-1785756146860-80659.json` and remains ignored by Git because it contains local paths.
