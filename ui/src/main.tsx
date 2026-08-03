@@ -6,6 +6,7 @@ import "./light.css";
 import "./actual.css";
 import "./blue.css";
 import "./docs.css";
+import "./readable.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode><App /></React.StrictMode>

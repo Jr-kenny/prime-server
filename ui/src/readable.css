@@ -1,0 +1,468 @@
+/* A comfortable reading scale for product copy, tables, status text, and forms. */
+.sidebar nav button,
+.sidebar nav a {
+  font-size: 14px;
+}
+
+.network-head {
+  font-size: 12px;
+}
+
+.network-card p,
+.network-line,
+.docs-link {
+  font-size: 11px;
+}
+
+.network-card strong {
+  font-size: 11px;
+}
+
+.network-line b {
+  font-size: 10px;
+}
+
+.docs-link small {
+  font-size: 9px;
+}
+
+.global-search input,
+.global-search input::placeholder {
+  font-size: 12px;
+}
+
+.chain-pill,
+.wallet-button {
+  font-size: 12px;
+}
+
+.preview-banner {
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.preview-banner span,
+.banner-action {
+  font-size: 10px;
+}
+
+.hero-row h1,
+.view-header h1 {
+  font-size: 36px;
+}
+
+.hero-row p,
+.view-header p {
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.eyebrow {
+  font-size: 10px;
+}
+
+.primary {
+  font-size: 12px;
+}
+
+.metric small {
+  font-size: 9px;
+}
+
+.metric strong {
+  font-size: 28px;
+}
+
+.metric strong em {
+  font-size: 12px;
+}
+
+.metric p {
+  font-size: 10px;
+}
+
+.panel-head h2,
+.events-head h2 {
+  font-size: 15px;
+}
+
+.panel-head p,
+.events-head p {
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.text-button {
+  font-size: 11px;
+}
+
+th {
+  font-size: 9px;
+}
+
+td {
+  font-size: 11px;
+}
+
+.blob-name strong {
+  font-size: 11px;
+}
+
+.blob-name small {
+  font-size: 9px;
+}
+
+.recovery-pill,
+.status,
+.event-type {
+  font-size: 10px;
+}
+
+.healthy {
+  font-size: 10px;
+}
+
+.origin-node strong {
+  font-size: 12px;
+}
+
+.origin-node small {
+  font-size: 9px;
+}
+
+.provider-node strong {
+  font-size: 10px;
+}
+
+.provider-node small {
+  font-size: 8px;
+}
+
+.recovery-note strong {
+  font-size: 10px;
+}
+
+.recovery-note p {
+  font-size: 9px;
+  line-height: 1.6;
+}
+
+.proof-strip p small {
+  font-size: 8px;
+}
+
+.proof-strip p strong {
+  font-size: 11px;
+}
+
+.proof-flow span,
+.proof-strip>a {
+  font-size: 9px;
+}
+
+.empty-state strong {
+  font-size: 14px;
+}
+
+.empty-state p {
+  font-size: 11px;
+}
+
+.empty-state.compact span {
+  font-size: 11px;
+}
+
+.view-badge {
+  font-size: 11px;
+}
+
+.table-link,
+.mono.table-link {
+  font-size: inherit;
+}
+
+.provider-cell strong {
+  font-size: 11px;
+}
+
+.recovery-stat strong {
+  font-size: 27px;
+}
+
+.recovery-stat span,
+.recovery-copy,
+.recovery-link {
+  font-size: 11px;
+}
+
+.recovery-copy {
+  line-height: 1.7;
+}
+
+.detail-head h2 {
+  font-size: 27px;
+}
+
+.detail-head p,
+.detail-status-row {
+  font-size: 11px;
+}
+
+.detail-grid small,
+.detail-section-head p,
+.detail-section-head .mono {
+  font-size: 9px;
+}
+
+.detail-grid p {
+  font-size: 11px;
+}
+
+.detail-section-head h3 {
+  font-size: 12px;
+}
+
+.detail-placements strong {
+  font-size: 11px;
+}
+
+.detail-placements small,
+.detail-placements em {
+  font-size: 9px;
+}
+
+.detail-explorer-link {
+  font-size: 11px;
+}
+
+.upload-head h2 {
+  font-size: 28px;
+}
+
+.upload-head p {
+  font-size: 12px;
+}
+
+.stepper>div {
+  font-size: 10px;
+}
+
+.drop-zone strong {
+  font-size: 13px;
+}
+
+.drop-zone span {
+  font-size: 10px;
+}
+
+.upload-form>label {
+  font-size: 10px;
+}
+
+.upload-form input,
+.upload-form select {
+  font-size: 12px;
+}
+
+.recovery-config strong {
+  font-size: 11px;
+}
+
+.recovery-config p {
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.recovery-config b {
+  font-size: 9px;
+}
+
+.file-summary strong {
+  font-size: 11px;
+}
+
+.file-summary small,
+.file-summary button {
+  font-size: 9px;
+}
+
+.proof-details small {
+  font-size: 8px;
+}
+
+.proof-details p {
+  font-size: 11px;
+}
+
+.timeline-row strong {
+  font-size: 11px;
+}
+
+.timeline-row p {
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.timeline-row>a {
+  font-size: 10px;
+}
+
+.provider-progress strong {
+  font-size: 9px;
+}
+
+.provider-progress small {
+  font-size: 8px;
+}
+
+.success-box strong {
+  font-size: 12px;
+}
+
+.success-box p,
+.error-box,
+.toast {
+  font-size: 10px;
+}
+
+/* Documentation uses the same scale so it reads like product documentation. */
+.docs-kicker,
+.docs-section-label,
+.docs-card-kicker {
+  font-size: 10px;
+}
+
+.docs-hero p {
+  font-size: 14px;
+}
+
+.docs-hero-meta span,
+.docs-hero-card button {
+  font-size: 10px;
+}
+
+.docs-hero-card p {
+  font-size: 11px;
+}
+
+.docs-sidebar-head {
+  font-size: 13px;
+}
+
+.docs-sidebar-head small,
+.docs-search input,
+.docs-nav button {
+  font-size: 10px;
+}
+
+.docs-nav-group>span {
+  font-size: 8px;
+}
+
+.docs-sidebar-foot strong,
+.docs-sidebar-foot span,
+.docs-no-results {
+  font-size: 10px;
+}
+
+.docs-section h2 {
+  font-size: 30px;
+}
+
+.docs-lead {
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.docs-step-grid strong,
+.docs-concept-grid strong,
+.docs-mode-grid strong,
+.docs-api-grid span,
+.docs-flow>div strong,
+.docs-payment-strip strong,
+.docs-status-list strong {
+  font-size: 11px;
+}
+
+.docs-step-grid span,
+.docs-concept-grid p,
+.docs-mode-grid p,
+.docs-definition p,
+.docs-flow>div span,
+.docs-payment-strip p,
+.docs-status-grid span,
+.docs-status-list p {
+  font-size: 10px;
+}
+
+.docs-code-head,
+.docs-code-head button {
+  font-size: 10px;
+}
+
+.docs-code pre {
+  font-size: 11px;
+}
+
+.docs-callout strong,
+.docs-note strong {
+  font-size: 11px;
+}
+
+.docs-callout p,
+.docs-note span {
+  font-size: 10px;
+}
+
+.docs-definition span,
+.docs-table th,
+.docs-table td,
+.docs-api-grid code,
+.docs-table code,
+.docs-section p code {
+  font-size: 10px;
+}
+
+.docs-table td {
+  line-height: 1.45;
+}
+
+.docs-footer-note {
+  font-size: 10px;
+}
+
+@media (max-width: 760px) {
+  .hero-row h1,
+  .view-header h1 {
+    font-size: 31px;
+  }
+
+  .hero-row p,
+  .view-header p {
+    font-size: 13px;
+  }
+
+  .docs-hero p,
+  .docs-lead {
+    font-size: 13px;
+  }
+
+  .docs-section h2 {
+    font-size: 26px;
+  }
+}
+
+@media (max-width: 480px) {
+  .hero-row h1,
+  .view-header h1 {
+    font-size: 28px;
+  }
+
+  .metric strong {
+    font-size: 24px;
+  }
+
+  .docs-hero h1 {
+    font-size: 32px;
+  }
+}
