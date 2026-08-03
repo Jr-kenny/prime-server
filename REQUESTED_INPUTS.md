@@ -14,6 +14,7 @@ This file is the handoff list for anything that must come from the user or the l
 - One Coston2 deployer wallet.
 - Four Coston2 provider operator wallets, or permission to derive four test-only operator accounts from a locally stored seed.
 - Coston2 test funds for the deployer and provider accounts.
+- The deployed `PrimeServerRegistry` address, after the deployment transaction is independently confirmed.
 - The wallet addresses can be sent in chat for verification. Private keys must stay in `/Users/user/Documents/prime-server/.env` or another local secret file.
 - If a private RPC or WebSocket endpoint is preferred, provide its local environment variable or secret-file path. The public Flare endpoints are already known and can be used otherwise.
 
@@ -27,6 +28,7 @@ PRIME_SERVER_PROVIDER_3_PRIVATE_KEY=
 PRIME_SERVER_PROVIDER_4_PRIVATE_KEY=
 PRIME_SERVER_RPC_URL=https://coston2-api.flare.network/ext/C/rpc
 PRIME_SERVER_WSS_URL=wss://coston2-api.flare.network/ext/C/ws
+PRIME_SERVER_REGISTRY_ADDRESS=
 ```
 
 ## Needed for a public demo
@@ -64,4 +66,3 @@ Rust     1.96.0
 ```
 
 Docker Desktop and its CLI are installed. The Docker daemon is currently stopped. The first contract and provider slices can proceed without it. Start Docker Desktop before containerized provider or Postgres work.
-

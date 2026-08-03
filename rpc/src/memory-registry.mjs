@@ -73,6 +73,31 @@ export class MemoryRegistry {
     blob.status = "active";
   }
 
+  async startRecovery(blobId, shardIndex) {
+    const blob = this.blobs.get(blobId);
+    if (!blob) fail("blob does not exist");
+    if (blob.status !== "active" && blob.status !== "rebuilt") fail("blob is not active");
+    if (!blob.placement.has(shardIndex)) fail("shard is not assigned");
+    blob.status = "recovering";
+  }
+
+  async reassignShard(blobId, shardIndex, providerId) {
+    const blob = this.blobs.get(blobId);
+    if (!blob) fail("blob does not exist");
+    if (blob.status !== "recovering") fail("recovery is not active");
+    if (!this.providers.get(providerId)?.active) fail("provider is inactive");
+    blob.placement.set(shardIndex, providerId);
+  }
+
+  async recordRebuiltShard({ blobId, shardIndex, providerId, commitment }) {
+    const blob = this.blobs.get(blobId);
+    if (!blob) fail("blob does not exist");
+    if (blob.status !== "recovering") fail("recovery is not active");
+    if (blob.placement.get(shardIndex) !== providerId) fail("provider is not assigned");
+    if (!commitment) fail("commitment is required");
+    blob.status = "rebuilt";
+  }
+
   getBlob(blobId) {
     const blob = this.blobs.get(blobId);
     if (!blob) return null;
@@ -90,4 +115,3 @@ export class MemoryRegistry {
     };
   }
 }
-

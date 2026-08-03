@@ -6,6 +6,8 @@
   "scripts": {
     "start": "node src/server.mjs",
     "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "viem": "2.55.10"
   }
 }
-

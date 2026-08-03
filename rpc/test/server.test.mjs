@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { startProviderProcesses, stopProviderProcesses, waitForProcessExit } from "../../scripts/providers.mjs";
+import { startProviderProcess, startProviderProcesses, stopProviderProcesses, waitForProcessExit } from "../../scripts/providers.mjs";
 import { MemoryRegistry } from "../src/memory-registry.mjs";
 import { createPrimeRpcServer } from "../src/server.mjs";
 
@@ -74,6 +74,33 @@ test("Prime RPC uploads a real blob to four providers and verifies acknowledgeme
     });
     assert.equal(range.status, 206);
     assert.deepEqual(Buffer.from(await range.arrayBuffer()), input.subarray(100, 1000));
+
+    for (const shardIndex of [1, 3]) {
+      const stoppedProvider = suite.providers[shardIndex];
+      await rm(path.join(stoppedProvider.dataDir, `${result.blobId}.${shardIndex}.shard`), { force: true });
+      await rm(path.join(stoppedProvider.dataDir, `${result.blobId}.${shardIndex}.json`), { force: true });
+    }
+    await stopProviderProcesses({ providers: [suite.providers[1], suite.providers[3]] });
+    for (const shardIndex of [1, 3]) {
+      const oldProvider = suite.providers[shardIndex];
+      suite.providers[shardIndex] = await startProviderProcess({
+        providerId: oldProvider.providerId,
+        port: oldProvider.port,
+        dataDir: oldProvider.dataDir,
+        logPath: oldProvider.logPath
+      });
+    }
+
+    const rebuild = await fetch(`${baseUrl}/v1/blobs/${result.blobId}/recover`, { method: "POST" });
+    assert.equal(rebuild.status, 200);
+    const rebuildResult = await rebuild.json();
+    assert.deepEqual(rebuildResult.rebuiltShards.map((shard) => shard.shardIndex), [1, 3]);
+    assert.equal(rebuildResult.status, "rebuilt");
+
+    const final = await fetch(`${baseUrl}/v1/blobs/${result.blobId}/content`);
+    assert.equal(final.status, 200);
+    assert.equal(final.headers.get("x-prime-recovered"), "false");
+    assert.deepEqual(Buffer.from(await final.arrayBuffer()), input);
   } finally {
     await close(rpc.server);
     await stopProviderProcesses(suite);

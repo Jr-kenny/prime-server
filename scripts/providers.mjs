@@ -42,6 +42,35 @@ async function waitForHealth(url, timeoutMs = 10_000) {
   throw new Error(`provider did not become healthy at ${url}: ${lastError?.message || "timeout"}`);
 }
 
+export async function startProviderProcess({ providerId, port, dataDir, logPath }) {
+  await mkdir(dataDir, { recursive: true });
+  await mkdir(path.dirname(logPath), { recursive: true });
+  const logStream = createWriteStream(logPath, { flags: "a" });
+  const child = spawn(process.execPath, [providerServerPath], {
+    cwd: repositoryRoot,
+    env: {
+      ...process.env,
+      PRIME_SERVER_PROVIDER_ID: providerId,
+      PRIME_SERVER_PROVIDER_PORT: String(port),
+      PRIME_SERVER_PROVIDER_DATA_DIR: dataDir
+    },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  child.stdout.pipe(logStream);
+  child.stderr.pipe(logStream);
+  const provider = {
+    providerId,
+    port,
+    url: `http://127.0.0.1:${port}`,
+    dataDir,
+    logPath,
+    child,
+    logStream
+  };
+  await waitForHealth(provider.url);
+  return provider;
+}
+
 export async function startProviderProcesses({
   count = 4,
   basePort = 7101,
@@ -58,29 +87,7 @@ export async function startProviderProcesses({
       const port = basePort + index;
       const dataDir = path.join(dataRoot, providerId);
       const logPath = path.join(logRoot, `${providerId}.log`);
-      const logStream = createWriteStream(logPath, { flags: "a" });
-      const child = spawn(process.execPath, [providerServerPath], {
-        cwd: repositoryRoot,
-        env: {
-          ...process.env,
-          PRIME_SERVER_PROVIDER_ID: providerId,
-          PRIME_SERVER_PROVIDER_PORT: String(port),
-          PRIME_SERVER_PROVIDER_DATA_DIR: dataDir
-        },
-        stdio: ["ignore", "pipe", "pipe"]
-      });
-      child.stdout.pipe(logStream);
-      child.stderr.pipe(logStream);
-      providers.push({
-        providerId,
-        port,
-        url: `http://127.0.0.1:${port}`,
-        dataDir,
-        logPath,
-        child,
-        logStream
-      });
-      await waitForHealth(`http://127.0.0.1:${port}`);
+      providers.push(await startProviderProcess({ providerId, port, dataDir, logPath }));
     }
   } catch (error) {
     await stopProviderProcesses({ providers });

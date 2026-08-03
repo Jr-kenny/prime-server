@@ -10,6 +10,9 @@ coverage/
 .DS_Store
 
 # Foundry
+cache/
+out/
+broadcast/
 contracts/cache/
 contracts/out/
 contracts/broadcast/
@@ -26,4 +29,3 @@ data/
 *.log
 tmp/
 run/
-

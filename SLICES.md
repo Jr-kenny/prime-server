@@ -173,7 +173,7 @@ Evidence: RPC integration test uploaded a real 2 MiB blob, stopped providers 2 a
 
 ## Slice 7: Coston2 deployment
 
-Status: `pending`
+Status: `in progress`
 
 Dependencies: Slice 1 and Slice 5.
 
@@ -189,6 +189,10 @@ Acceptance:
 - The deployed bytecode matches the local build.
 - A provider registration and blob creation transaction are independently readable.
 - The local evidence record contains chain ID, contract address, block numbers, and transaction hashes.
+
+Current output: `rpc/src/flare-registry.mjs` writes the registry lifecycle through viem. Local EVM tests deploy the real Solidity contract, register four funded providers, upload through Prime RPC, recover after two process failures, rebuild both shards, and observe the `rebuilt` state onchain.
+
+Remaining: deploy the same contract to Coston2 with user-provided test wallets and record the live deployment evidence.
 
 ## Slice 8: event indexer and recovery coordinator
 

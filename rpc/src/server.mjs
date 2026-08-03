@@ -71,7 +71,7 @@ async function readProviderShard(provider, blobId, shardIndex, expectedCommitmen
 }
 
 export async function readBlob({ blobId, providers, registry, erasureEngine }) {
-  const blob = registry.getBlob(blobId);
+  const blob = await registry.getBlob(blobId);
   if (!blob) throw new Error("blob not found");
   const acknowledgements = new Map(blob.acknowledgements.map((acknowledgement) => [acknowledgement.shardIndex, acknowledgement]));
   const available = [];
@@ -98,6 +98,7 @@ export async function readBlob({ blobId, providers, registry, erasureEngine }) {
   }
 
   let recovered;
+  const recoveredShards = {};
   if (missing.length === 0) {
     recovered = Buffer.concat(
       available.filter(({ index }) => index < blob.dataShards).sort((a, b) => a.index - b.index).map(({ bytes }) => bytes)
@@ -105,6 +106,7 @@ export async function readBlob({ blobId, providers, registry, erasureEngine }) {
   } else {
     const decoded = await erasureEngine.decode(available, missing, blob.size);
     recovered = decoded.recovered;
+    for (const shardIndex of missing) recoveredShards[shardIndex] = decoded.chunks[shardIndex];
   }
 
   return {
@@ -112,8 +114,44 @@ export async function readBlob({ blobId, providers, registry, erasureEngine }) {
     bytes: recovered,
     missingShards: missing,
     recovered: missing.length > 0,
+    recoveredShards,
     contentHash: createHash("sha256").update(recovered).digest("hex")
   };
+}
+
+export async function rebuildBlob({ blobId, providers, registry, erasureEngine }) {
+  const result = await readBlob({ blobId, providers, registry, erasureEngine });
+  if (result.missingShards.length === 0) {
+    return { blobId, rebuiltShards: [], status: result.blob.status, contentHash: result.contentHash };
+  }
+
+  const rebuiltShards = [];
+  for (const shardIndex of result.missingShards) {
+    const providerId = result.blob.placement[String(shardIndex)] ?? result.blob.placement[shardIndex];
+    const provider = providers.find((candidate) => candidate.providerId === providerId);
+    if (!provider) throw new Error(`provider ${providerId} is required for shard rebuild`);
+    const bytes = Buffer.from(result.recoveredShards[shardIndex]);
+    const commitment = createHash("sha256").update(bytes).digest("hex");
+
+    await registry.startRecovery(blobId, shardIndex);
+    await registry.reassignShard(blobId, shardIndex, provider.providerId);
+    const receipt = await uploadShard(provider, blobId, shardIndex, bytes, commitment);
+    await registry.acknowledgeShard({
+      blobId,
+      shardIndex,
+      providerId: provider.providerId,
+      commitment: receipt.commitment,
+      size: receipt.size,
+      signedPayload: receipt.signedPayload,
+      signature: receipt.signature
+    });
+    await registry.recordRebuiltShard({ blobId, shardIndex, providerId: provider.providerId, commitment: receipt.commitment });
+    rebuiltShards.push({ shardIndex, providerId: provider.providerId, commitment: receipt.commitment });
+  }
+
+  const final = await readBlob({ blobId, providers, registry, erasureEngine });
+  if (final.missingShards.length !== 0) throw new Error("rebuilt blob is still missing shards");
+  return { blobId, rebuiltShards, status: final.blob.status, contentHash: final.contentHash };
 }
 
 export async function uploadBlob({ input, providers, registry, erasureEngine, owner = "local-owner" }) {
@@ -160,15 +198,16 @@ export async function uploadBlob({ input, providers, registry, erasureEngine, ow
   }
 
   await registry.finalizeBlob(blobId);
+  const registryState = await registry.getBlob(blobId);
   return {
     blobId,
     commitment: encoded.clayChunksetRoot,
     chunkCommitments: encoded.chunkCommitments,
     clayChunkRoots: encoded.clayChunkRoots,
     size: input.length,
-    status: registry.getBlob(blobId)?.status || "active",
+    status: registryState?.status || "active",
     providers: receipts,
-    registry: registry.getBlob(blobId)
+    registry: registryState
   };
 }
 
@@ -199,9 +238,15 @@ export async function createPrimeRpcServer({ providers, registry, erasureEngine 
         json(res, 201, result);
         return;
       }
+      const recoveryMatch = requestUrl.pathname.match(/^\/v1\/blobs\/([A-Za-z0-9._-]+)\/recover$/);
+      if (req.method === "POST" && recoveryMatch) {
+        const result = await rebuildBlob({ blobId: recoveryMatch[1], providers, registry, erasureEngine: engine });
+        json(res, 200, result);
+        return;
+      }
       const blobMatch = requestUrl.pathname.match(/^\/v1\/blobs\/([A-Za-z0-9._-]+)$/);
       if (req.method === "GET" && blobMatch) {
-        const blob = registry.getBlob(blobMatch[1]);
+        const blob = await registry.getBlob(blobMatch[1]);
         if (!blob) {
           json(res, 404, { error: "blob not found" });
           return;

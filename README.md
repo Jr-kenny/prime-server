@@ -18,6 +18,7 @@ The project is in the architecture and scaffold phase. No public endpoint, produ
 - [SLICES.md](./SLICES.md) is the execution queue. It has no calendar-day assumptions.
 - [docs/demo-script.md](./docs/demo-script.md) defines the live failure and recovery demonstration.
 - [REQUESTED_INPUTS.md](./REQUESTED_INPUTS.md) lists the access, software, and test resources needed to run the slices.
+- [contracts/DEPLOY.md](./contracts/DEPLOY.md) records the deployment command and evidence requirements.
 - [contracts/src/PrimeServerRegistry.sol](./contracts/src/PrimeServerRegistry.sol) is the first onchain coordination surface.
 
 ## Repository layout
