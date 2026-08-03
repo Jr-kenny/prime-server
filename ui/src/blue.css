@@ -12,6 +12,28 @@ body {
   background: radial-gradient(circle at 75% -20%, rgba(55, 112, 220, .14), transparent 34%), #08110f;
 }
 
+.sidebar {
+  background: #081426;
+  border-right-color: rgba(174, 200, 255, .14);
+}
+
+.brand small {
+  color: #7890b3;
+}
+
+nav a,
+nav button {
+  color: #8398ba;
+}
+
+nav a>span,
+nav a>i,
+nav button>span,
+nav button>i {
+  background: #122441;
+  color: #8398ba;
+}
+
 nav a:hover,
 nav a.active,
 nav button:hover,
@@ -28,6 +50,32 @@ nav a>i,
 nav button>i {
   background: var(--accent-blue);
   box-shadow: 0 0 8px rgba(79, 140, 255, .7);
+}
+
+.network-card {
+  background: #0b1830;
+  border-color: rgba(174, 200, 255, .14);
+}
+
+.network-card p,
+.network-line {
+  color: #7890b3;
+}
+
+.network-card strong {
+  color: #c4d5f1;
+}
+
+.network-line {
+  border-top-color: rgba(174, 200, 255, .14);
+}
+
+.docs-link {
+  color: #91a5c4;
+}
+
+.docs-link small {
+  color: #6d83a6;
 }
 
 .live-dot,
@@ -57,16 +105,28 @@ nav button>i {
   background: #3d7df2;
 }
 
+.wallet-button {
+  background: var(--accent-blue) !important;
+  border-color: var(--accent-blue) !important;
+  color: #fff !important;
+}
+
+.wallet-button svg {
+  color: #fff !important;
+}
+
 .metric-icon.green,
 .metric-icon.blue,
-.metric-icon.purple {
+.metric-icon.purple,
+.metric-icon.amber {
   color: var(--accent-blue-bright) !important;
   background: rgba(79, 140, 255, .12) !important;
 }
 
 .metric p i.green,
 .metric p i.blue,
-.metric p i.purple {
+.metric p i.purple,
+.metric p i.amber {
   color: var(--accent-blue-bright);
 }
 
@@ -99,7 +159,8 @@ nav button>i {
 }
 
 .event-type.finalized,
-.event-type.acknowledged {
+.event-type.acknowledged,
+.event-type.assigned {
   background: #eaf1ff;
   color: #356bc7;
 }
@@ -164,6 +225,10 @@ nav button>i {
 
 .proof-strip>a {
   color: var(--accent-blue);
+}
+
+.flare-icon {
+  background: var(--accent-blue);
 }
 
 .stepper .reached span {
