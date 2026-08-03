@@ -5,6 +5,7 @@ The deployment command uses Foundry's built-in contract creation flow. Run it fr
 ```bash
 cd /Users/user/Documents/prime-server/contracts
 forge create \
+  --broadcast \
   --rpc-url "$PRIME_SERVER_RPC_URL" \
   --private-key "$PRIME_SERVER_DEPLOYER_PRIVATE_KEY" \
   src/PrimeServerRegistry.sol:PrimeServerRegistry
@@ -12,11 +13,11 @@ forge create \
 
 Record the returned contract address, transaction hash, deployment block, chain ID, and compiler version in the evidence log. Never place the private key in Git or chat.
 
-The canonical Coston2 deployment for the current paid and policy proof is recorded in [docs/evidence/coston2-paid-live-proof.md](../docs/evidence/coston2-paid-live-proof.md). The earlier storage and recovery run remains documented in [docs/evidence/coston2-live-proof.md](../docs/evidence/coston2-live-proof.md).
+The fresh post-hardening Coston2 registry deployment is recorded in [docs/evidence/coston2-registry-hardening-deployment.md](../docs/evidence/coston2-registry-hardening-deployment.md). The earlier paid proof and storage/recovery run remain historical evidence in [docs/evidence/coston2-paid-live-proof.md](../docs/evidence/coston2-paid-live-proof.md) and [docs/evidence/coston2-live-proof.md](../docs/evidence/coston2-live-proof.md).
 
 The source contract now includes `BlobOrigin`, native payment escrow, duration pricing, a post-expiry provider reserve, storage policy, confidential access requests, `createOperatorBlob`, and `createOperatorBlobNamed`. The current build uses Solidity `0.8.24`, optimizer runs `100`, and via-IR compilation. Deploy a replacement registry before using the registration-first public API. Do not point the new RPC at the earlier proof address because its ABI and ownership boundary are different.
 
-The registry ABI and storage layout are frozen after the local payment, metadata, and access hardening slice. FCC instruction transport and XRP, FDC, and FAssets settlement must be deployed as separate contracts or extensions. A new registry deployment and live proof are still required before this build is described as live Coston2 infrastructure.
+The registry ABI and storage layout are frozen after the local payment, metadata, and access hardening slice. The fresh registry is deployed, while a new live paid-storage proof is still required before the complete build is described as live Coston2 infrastructure. FCC instruction transport and XRP, FDC, and FAssets settlement remain separate contracts or extensions.
 
 ## FCC instruction sender
 

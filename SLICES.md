@@ -190,7 +190,7 @@ Acceptance:
 - A provider registration and blob creation transaction are independently readable.
 - The local evidence record contains chain ID, contract address, block numbers, and transaction hashes.
 
-Current output: the replacement registry is deployed to Coston2 at `0x73f92b133e6259f170Bc42FA708F476CDE15AdD0`. The deployment succeeded in block `33585089`, the transaction is recorded in `docs/evidence/coston2-paid-live-proof.md`, and the live bytecode matches the Solidity `0.8.24` via-IR build at 23,489 bytes. Four funded provider operators registered successfully. The paid, private ciphertext, access-intent, and replacement-registry recovery proofs are recorded in the two Coston2 evidence documents.
+Current output: the fresh post-hardening registry is deployed to Coston2 at `0x2049Bc9475B88B55D6d43aE28263D68719251113`. The deployment succeeded in block `33589954`, and the transaction, chain ID, compiler settings, and 24,355-byte runtime verification are recorded in `docs/evidence/coston2-registry-hardening-deployment.md`. Provider re-registration and the paid, private ciphertext, access-intent, and recovery proofs still need to be rerun against this address.
 
 ## Slice 8: event indexer and recovery coordinator
 
@@ -266,11 +266,11 @@ These slices extend the proven storage and recovery core. They do not replace th
 
 After Slice 11A, `PrimeServerRegistry` is the stable storage and native-payment registry. Its ABI and storage layout are the compatibility boundary for the storage network. FCC transport uses separate instruction-sender and extension contracts that read existing blob policy and access-intent state, then record results through the existing controller boundary. XRP, FDC, and FAssets use separate payment-intent or escrow contracts. Those layers do not add FCC ciphertext, device keys, attestation data, external-payment state, or cross-chain settlement fields to `PrimeServerRegistry`.
 
-The current local registry build requires a replacement Coston2 deployment before live evidence is refreshed. The earlier Coston2 address remains pre-hardening evidence and must not be presented as the frozen registry deployment.
+The fresh post-hardening registry is deployed to Coston2 at `0x2049Bc9475B88B55D6d43aE28263D68719251113`. The earlier Coston2 addresses remain historical pre-hardening evidence and must not be presented as the current frozen registry deployment.
 
 ## Slice 11: shared policy and native payment schema
 
-Status: `complete locally, Coston2 redeploy pending, XRP settlement pending`
+Status: `complete locally, fresh Coston2 registry deployed, live paid proof pending, XRP settlement pending`
 
 Dependencies: Slice 9.
 
@@ -289,11 +289,11 @@ Acceptance:
 - A real local EVM test registers a paid blob, uploads it through the developer API, pays the immediate claims for all four providers, and reads the partially settled payment state while the retention reserve remains escrowed.
 - The registry runtime stays below EIP-170 under the configured via-IR build.
 
-Evidence: The native payment, duration quote, and retention reserve tests pass locally. SDK and RPC suites pass. The next Coston2 deployment and live paid proof must be rerun after this registry change. The current via-IR build remains below EIP-170.
+Evidence: The native payment, duration quote, and retention reserve tests pass locally. SDK and RPC suites pass. The fresh registry deployment is recorded in `docs/evidence/coston2-registry-hardening-deployment.md`. The live paid proof must be rerun against that address. The current via-IR build remains below EIP-170.
 
 ## Slice 11A: payment, metadata, and access hardening
 
-Status: `complete locally, redeploy pending`
+Status: `complete locally, fresh Coston2 registry deployed, live hardening proof pending`
 
 Dependencies: Slice 11.
 
@@ -313,7 +313,7 @@ Acceptance:
 - SDK tests cover nested canonicalization, encrypted metadata recovery, opaque names, and selected-wallet retrieval options.
 - RPC tests cover the owner-scoped selected-wallet ciphertext route.
 
-Evidence: Local Foundry, SDK, provider, and RPC suites pass. A fresh registry deployment is required before these changes can be claimed live on Coston2.
+Evidence: Local Foundry, SDK, provider, and RPC suites pass. The fresh registry deployment is recorded in `docs/evidence/coston2-registry-hardening-deployment.md`. Provider re-registration and a complete live hardening proof are still required before these changes can be claimed live on Coston2.
 
 Freeze boundary: `PrimeServerRegistry` is frozen after this slice. FCC transport and XRP, FDC, and FAssets settlement continue in separate contracts and extensions. Future changes must preserve this registry ABI and storage layout unless a separately approved registry version is created.
 
