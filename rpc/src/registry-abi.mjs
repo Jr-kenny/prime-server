@@ -135,5 +135,85 @@ export const primeServerRegistryAbi = [
       { name: "acknowledgedAt", type: "uint64" },
       { name: "exists", type: "bool" }
     ]
+  },
+  {
+    type: "event",
+    name: "ProviderRegistered",
+    anonymous: false,
+    inputs: [
+      { name: "providerId", type: "uint256", indexed: true },
+      { name: "operator", type: "address", indexed: true },
+      { name: "endpoint", type: "string", indexed: false },
+      { name: "signingKey", type: "bytes32", indexed: false }
+    ]
+  },
+  {
+    type: "event",
+    name: "ProviderStatusChanged",
+    anonymous: false,
+    inputs: [
+      { name: "providerId", type: "uint256", indexed: true },
+      { name: "active", type: "bool", indexed: false }
+    ]
+  },
+  {
+    type: "event",
+    name: "BlobCreated",
+    anonymous: false,
+    inputs: [
+      { name: "blobId", type: "bytes32", indexed: true },
+      { name: "owner", type: "address", indexed: true },
+      { name: "commitment", type: "bytes32", indexed: false },
+      { name: "size", type: "uint64", indexed: false }
+    ]
+  },
+  {
+    type: "event",
+    name: "ShardAssigned",
+    anonymous: false,
+    inputs: [
+      { name: "blobId", type: "bytes32", indexed: true },
+      { name: "shardIndex", type: "uint8", indexed: true },
+      { name: "providerId", type: "uint256", indexed: true }
+    ]
+  },
+  {
+    type: "event",
+    name: "ShardAcknowledged",
+    anonymous: false,
+    inputs: [
+      { name: "blobId", type: "bytes32", indexed: true },
+      { name: "shardIndex", type: "uint8", indexed: true },
+      { name: "providerId", type: "uint256", indexed: true },
+      { name: "commitment", type: "bytes32", indexed: false },
+      { name: "size", type: "uint64", indexed: false }
+    ]
+  },
+  {
+    type: "event",
+    name: "BlobFinalized",
+    anonymous: false,
+    inputs: [{ name: "blobId", type: "bytes32", indexed: true }]
+  },
+  {
+    type: "event",
+    name: "RecoveryStarted",
+    anonymous: false,
+    inputs: [
+      { name: "blobId", type: "bytes32", indexed: true },
+      { name: "providerId", type: "uint256", indexed: true },
+      { name: "shardIndex", type: "uint8", indexed: true }
+    ]
+  },
+  {
+    type: "event",
+    name: "ShardRebuilt",
+    anonymous: false,
+    inputs: [
+      { name: "blobId", type: "bytes32", indexed: true },
+      { name: "shardIndex", type: "uint8", indexed: true },
+      { name: "providerId", type: "uint256", indexed: true },
+      { name: "commitment", type: "bytes32", indexed: false }
+    ]
   }
 ];

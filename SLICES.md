@@ -196,7 +196,7 @@ Remaining: deploy the same contract to Coston2 with user-provided test wallets a
 
 ## Slice 8: event indexer and recovery coordinator
 
-Status: `pending`
+Status: `in progress`
 
 Dependencies: Slice 6 and Slice 7.
 
@@ -213,6 +213,10 @@ Acceptance:
 - Restarting the coordinator does not lose completed onchain state.
 - A failed provider creates a recoverable job.
 - A recovery job can be retried safely.
+
+Current output: `rpc/src/event-indexer.mjs` polls and parses registry events with a block cursor. `POST /v1/blobs/:blobId/recover` reconstructs missing shards, restarts the storage path, records rebuilt state, and verifies the final read.
+
+Remaining: persist the cursor and recovery queue in an operational store and add retry evidence across coordinator restarts.
 
 ## Slice 9: end-to-end failure proof
 
