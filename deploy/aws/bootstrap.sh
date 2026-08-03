@@ -13,7 +13,7 @@ readonly DATA_ROOT="/var/lib/prime-server/providers"
 readonly RUNTIME_ROOT="/var/lib/prime-server"
 readonly CONFIG_FILE="/opt/prime-server/.env"
 
-dnf install -y docker jq curl
+dnf install -y docker jq
 systemctl enable --now docker
 
 install -d -m 0750 /opt/prime-server "$RUNTIME_ROOT" "$DATA_ROOT"
