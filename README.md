@@ -1,6 +1,6 @@
 # Prime Server
 
-Prime Server is a Flare-native, verifiable decentralized storage network with erasure-coded storage, wallet-owned blobs, and provider recovery.
+Prime Server is a Flare-native, verifiable decentralized storage network with erasure-coded storage, wallet-owned blobs, native paid registration, encrypted storage modes, and provider recovery.
 
 Public writes use a registration-first protocol. The SDK computes the commitment locally, the user wallet registers the blob directly on Flare, and Prime RPC accepts bytes only after it verifies that registration and recomputes the same commitment.
 
@@ -14,6 +14,8 @@ The project is built around one visible proof:
 
 The first live proof is complete on Flare Coston2. A real 2 MiB blob was uploaded through Prime RPC, acknowledged by four provider processes, recovered after providers 2 and 4 were stopped, rebuilt, and read back with an identical SHA-256 hash. The registry address, transaction hashes, event counts, and limits of the local proof are recorded in [docs/evidence/coston2-live-proof.md](./docs/evidence/coston2-live-proof.md).
 
+The new paid and privacy layers are locally verified against the contract and a real local EVM. The paid path records native escrow with registration, settles final-placement providers, and checks policy commitments before upload. The SDK encrypts private and confidential blobs locally and prepares an FCC-sealed key envelope. Live Coston2 evidence for the new registry build and live FCC attestation remain separate slices.
+
 ## Start here
 
 - [architecture.md](./architecture.md) explains the system boundary and data flow.
@@ -22,7 +24,9 @@ The first live proof is complete on Flare Coston2. A real 2 MiB blob was uploade
 - [REQUESTED_INPUTS.md](./REQUESTED_INPUTS.md) lists the access, software, and test resources needed to run the slices.
 - [contracts/DEPLOY.md](./contracts/DEPLOY.md) records the deployment command and evidence requirements.
 - [scripts/coston2-demo.mjs](./scripts/coston2-demo.mjs) runs the live upload, failure, recovery, rebuild, and final-read proof.
+- [scripts/coston2-paid-demo.mjs](./scripts/coston2-paid-demo.mjs) runs the native paid, private ciphertext, and wallet access-intent proof.
 - [docs/evidence/coston2-live-proof.md](./docs/evidence/coston2-live-proof.md) records the canonical Coston2 run.
+- [docs/evidence/coston2-paid-live-proof.md](./docs/evidence/coston2-paid-live-proof.md) records the replacement registry payment and policy run.
 - [contracts/src/PrimeServerRegistry.sol](./contracts/src/PrimeServerRegistry.sol) is the first onchain coordination surface.
 - [docs/developer-api.md](./docs/developer-api.md) defines the wallet-owned developer API.
 - [docs/protocol-identity-notes.md](./docs/protocol-identity-notes.md) records the owner and named-blob protocol decisions.

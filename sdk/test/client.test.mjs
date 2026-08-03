@@ -81,6 +81,7 @@ test("SDK requires a public client before registering a blob", async () => {
     baseUrl: "https://api.primeserver.example/prime/v1",
     wallet: { address },
     registryAddress: "0x0000000000000000000000000000000000000002",
+    chainId: 31337,
     walletClient: {
       account: { address },
       async writeContract() {
@@ -95,4 +96,119 @@ test("SDK requires a public client before registering a blob", async () => {
     () => client.registerBlob(prepared),
     /publicClient is required to confirm blob registration before upload/
   );
+});
+
+test("SDK quotes and atomically registers a paid blob with its policy", async () => {
+  const input = Buffer.from("paid Prime Server object");
+  const writes = [];
+  const client = createPrimeServerClient({
+    baseUrl: "https://api.primeserver.example/prime/v1",
+    wallet: {
+      address,
+      async signMessage() {
+        return "0xsignature";
+      }
+    },
+    registryAddress: "0x0000000000000000000000000000000000000002",
+    walletClient: {
+      account: { address },
+      async writeContract(request) {
+        writes.push(request);
+        return "0xpaid-registration";
+      }
+    },
+    publicClient: {
+      async readContract() {
+        return {
+          total: 8400n,
+          providerPool: 8000n,
+          protocolFee: 400n,
+          providerRewardPerShard: 2000n,
+          quoteCommitment: `0x${"11".repeat(32)}`
+        };
+      },
+      async waitForTransactionReceipt({ hash }) {
+        return { status: "success", hash };
+      }
+    },
+    fetchImpl: async (url, init = {}) => {
+      if (url.includes("/auth/challenge")) {
+        return new Response(JSON.stringify({ nonce: "nonce", message: "sign this" }), { status: 200 });
+      }
+      if (url.endsWith("/auth/session")) {
+        return new Response(JSON.stringify({ token: "session-token" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ blobId: "0xpaid", status: "active" }), { status: 201 });
+    }
+  });
+
+  const prepared = await client.prepareBlob(input, { name: "paid/report.json", expirationSeconds: 3600 });
+  const registration = await client.registerPaidBlob(prepared, { storageMode: "public", accessPolicy: "owner_only" });
+  assert.equal(registration.hash, "0xpaid-registration");
+  assert.equal(registration.payment.status, "escrowed");
+  assert.equal(writes[0].functionName, "createBlobNamedPaid");
+  assert.equal(writes[0].value, 8400n);
+  assert.equal(writes[0].args[0].blobId, prepared.blobId);
+  assert.equal(writes[0].args[0].storageMode, 0);
+  assert.equal(writes[0].args[0].accessPolicy, 0);
+  assert.match(writes[0].args[0].policyCommitment, /^0x[a-f0-9]{64}$/);
+  assert.equal(writes[0].args[0].keyEnvelopeCommitment, `0x${"00".repeat(32)}`);
+
+  const uploaded = await client.uploadRegisteredBlob(prepared, input, { contentType: "application/json" });
+  assert.equal(uploaded.status, "active");
+
+  const privatePrepared = await client.prepareBlob(input, { name: "private/report.json", expirationSeconds: 3600 });
+  await assert.rejects(
+    () => client.registerPaidBlob(privatePrepared, { storageMode: "private" }),
+    /key envelope commitment/
+  );
+});
+
+test("SDK binds a fresh device key to a replay-protected confidential access intent", async () => {
+  const writes = [];
+  const signature = `0x${"12".repeat(65)}`;
+  const client = createPrimeServerClient({
+    baseUrl: "https://api.primeserver.example/prime/v1",
+    wallet: { address },
+    registryAddress: "0x0000000000000000000000000000000000000002",
+    chainId: 31337,
+    walletClient: {
+      account: { address },
+      async signTypedData(request) {
+        assert.equal(request.primaryType, "ConfidentialAccess");
+        return signature;
+      },
+      async writeContract(request) {
+        writes.push(request);
+        return "0xaccess-authorization";
+      }
+    },
+    publicClient: {
+      async readContract({ functionName }) {
+        if (functionName === "confidentialAccessNonces") return 0n;
+        if (functionName === "hashConfidentialAccess") return `0x${"34".repeat(32)}`;
+        throw new Error(`unexpected read ${functionName}`);
+      },
+      async waitForTransactionReceipt({ hash }) {
+        return { status: "success", hash };
+      }
+    },
+    fetchImpl: async () => new Response("unexpected request", { status: 500 })
+  });
+
+  const device = client.createDeviceKeyPair();
+  const prepared = await client.prepareConfidentialAccessRequest({
+    blobId: `0x${"56".repeat(32)}`,
+    devicePublicKey: device.publicKey,
+    purpose: "compute"
+  });
+  assert.equal(prepared.request.requester, address);
+  assert.equal(prepared.request.deviceKeyCommitment, device.keyCommitment);
+  assert.equal(prepared.request.purpose, 1);
+  assert.equal(prepared.request.nonce, 0n);
+
+  const authorized = await client.authorizeConfidentialAccess(prepared);
+  assert.equal(authorized.requestId, `0x${"34".repeat(32)}`);
+  assert.equal(writes[0].functionName, "authorizeConfidentialAccess");
+  assert.equal(writes[0].args[1], signature);
 });

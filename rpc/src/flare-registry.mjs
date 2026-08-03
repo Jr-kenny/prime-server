@@ -67,8 +67,89 @@ export function createFlareRegistry({
     return resolved === undefined ? BigInt(providerId) : resolved;
   }
 
-  async function write(wallet, functionName, args) {
-    const hash = await wallet.writeContract({ address, abi: primeServerRegistryAbi, functionName, args });
+  function paidRegistrationTuple(registration) {
+    return {
+      blobId: `0x${registration.blobId.replace(/^0x/, "")}`,
+      blobName: registration.blobName || "",
+      commitment: `0x${registration.commitment.replace(/^0x/, "")}`,
+      size: BigInt(registration.size),
+      chunkSize: Number(registration.chunkSize),
+      dataShards: Number(registration.dataShards),
+      totalShards: Number(registration.totalShards),
+      expiresAt: BigInt(registration.expiresAt),
+      storageMode: Number(registration.storageMode),
+      accessPolicy: Number(registration.accessPolicy),
+      policyCommitment: `0x${registration.policyCommitment.replace(/^0x/, "")}`,
+      keyEnvelopeCommitment: `0x${registration.keyEnvelopeCommitment.replace(/^0x/, "")}`,
+      metadataCommitment: `0x${registration.metadataCommitment.replace(/^0x/, "")}`
+    };
+  }
+
+  function confidentialAccessRequestTuple(request) {
+    return {
+      blobId: `0x${request.blobId.replace(/^0x/, "")}`,
+      requester: request.requester,
+      deviceKeyCommitment: `0x${request.deviceKeyCommitment.replace(/^0x/, "")}`,
+      nonce: BigInt(request.nonce),
+      deadline: BigInt(request.deadline),
+      purpose: Number(request.purpose),
+      exists: Boolean(request.exists),
+      consumed: Boolean(request.consumed)
+    };
+  }
+
+  async function readBlobPolicy(blobId) {
+    const raw = await publicClient.readContract({
+      address,
+      abi: primeServerRegistryAbi,
+      functionName: "getBlobPolicy",
+      args: [`0x${blobId.replace(/^0x/, "")}`]
+    });
+    const modeNames = ["public", "private", "confidential"];
+    const accessNames = ["owner_only", "selected_wallets", "compute_only"];
+    return {
+      storageMode: Number(raw.storageMode ?? raw[0]),
+      storageModeName: modeNames[Number(raw.storageMode ?? raw[0])] || "unknown",
+      accessPolicy: Number(raw.accessPolicy ?? raw[1]),
+      accessPolicyName: accessNames[Number(raw.accessPolicy ?? raw[1])] || "unknown",
+      policyCommitment: (raw.policyCommitment ?? raw[2]).replace(/^0x/, ""),
+      keyEnvelopeCommitment: (raw.keyEnvelopeCommitment ?? raw[3]).replace(/^0x/, ""),
+      metadataCommitment: (raw.metadataCommitment ?? raw[4]).replace(/^0x/, "")
+    };
+  }
+
+  async function readBlobPayment(blobId) {
+    const raw = await publicClient.readContract({
+      address,
+      abi: primeServerRegistryAbi,
+      functionName: "getBlobPayment",
+      args: [`0x${blobId.replace(/^0x/, "")}`]
+    });
+    const assetNames = ["native_flare", "fxrp", "xrp"];
+    const statusNames = ["none", "escrowed", "claimable", "partially_settled", "settled", "refunded"];
+    const asset = Number(raw.asset ?? raw[0]);
+    const status = Number(raw.status ?? raw[1]);
+    return {
+      asset,
+      assetName: assetNames[asset] || "unknown",
+      status,
+      statusName: statusNames[status] || "unknown",
+      payer: raw.payer ?? raw[2],
+      totalPaid: BigInt(raw.totalPaid ?? raw[3]),
+      providerPool: BigInt(raw.providerPool ?? raw[4]),
+      providerRewardPerShard: BigInt(raw.providerRewardPerShard ?? raw[5]),
+      protocolFee: BigInt(raw.protocolFee ?? raw[6]),
+      providerSettled: BigInt(raw.providerSettled ?? raw[7]),
+      quoteCommitment: (raw.quoteCommitment ?? raw[8]).replace(/^0x/, ""),
+      paidAt: Number(raw.paidAt ?? raw[9]),
+      settledAt: Number(raw.settledAt ?? raw[10])
+    };
+  }
+
+  async function write(wallet, functionName, args, value) {
+    const request = { address, abi: primeServerRegistryAbi, functionName, args };
+    if (value !== undefined) request.value = BigInt(value);
+    const hash = await wallet.writeContract(request);
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
     transactionJournal.push({
       functionName,
@@ -144,6 +225,99 @@ export function createFlareRegistry({
       ]);
     },
 
+    async quoteNativePayment({ size, totalShards, storageMode }) {
+      const raw = await publicClient.readContract({
+        address,
+        abi: primeServerRegistryAbi,
+        functionName: "quoteNativePayment",
+        args: [BigInt(size), Number(totalShards), Number(storageMode)]
+      });
+      return {
+        total: BigInt(raw.total ?? raw[0]),
+        providerPool: BigInt(raw.providerPool ?? raw[1]),
+        protocolFee: BigInt(raw.protocolFee ?? raw[2]),
+        providerRewardPerShard: BigInt(raw.providerRewardPerShard ?? raw[3]),
+        quoteCommitment: (raw.quoteCommitment ?? raw[4]).replace(/^0x/, "")
+      };
+    },
+
+    async getConfidentialAccessNonce({ blobId, requester }) {
+      return publicClient.readContract({
+        address,
+        abi: primeServerRegistryAbi,
+        functionName: "confidentialAccessNonces",
+        args: [`0x${blobId.replace(/^0x/, "")}`, requester]
+      });
+    },
+
+    async hashConfidentialAccess(request) {
+      return publicClient.readContract({
+        address,
+        abi: primeServerRegistryAbi,
+        functionName: "hashConfidentialAccess",
+        args: [confidentialAccessRequestTuple(request)]
+      });
+    },
+
+    async authorizeConfidentialAccess({ wallet = deployerWallet, request, signature }) {
+      return write(wallet, "authorizeConfidentialAccess", [confidentialAccessRequestTuple(request), signature]);
+    },
+
+    async getConfidentialAccessRequest(requestId) {
+      const raw = await publicClient.readContract({
+        address,
+        abi: primeServerRegistryAbi,
+        functionName: "confidentialAccessRequests",
+        args: [`0x${requestId.replace(/^0x/, "")}`]
+      });
+      return {
+        blobId: raw.blobId ?? raw[0],
+        requester: raw.requester ?? raw[1],
+        deviceKeyCommitment: raw.deviceKeyCommitment ?? raw[2],
+        nonce: BigInt(raw.nonce ?? raw[3]),
+        deadline: Number(raw.deadline ?? raw[4]),
+        purpose: Number(raw.purpose ?? raw[5]),
+        exists: Boolean(raw.exists ?? raw[6]),
+        consumed: Boolean(raw.consumed ?? raw[7])
+      };
+    },
+
+    async isConfidentialAccessUsable(requestId) {
+      return publicClient.readContract({
+        address,
+        abi: primeServerRegistryAbi,
+        functionName: "isConfidentialAccessUsable",
+        args: [`0x${requestId.replace(/^0x/, "")}`]
+      });
+    },
+
+    async recordConfidentialAccessResult({ requestId, responseCommitment, wallet = deployerWallet }) {
+      return write(wallet, "recordConfidentialAccessResult", [
+        `0x${requestId.replace(/^0x/, "")}`,
+        `0x${responseCommitment.replace(/^0x/, "")}`
+      ]);
+    },
+
+    async setConfidentialAccessController({ controller, allowed, wallet = deployerWallet }) {
+      return write(wallet, "setConfidentialAccessController", [controller, Boolean(allowed)]);
+    },
+
+    async setBlobWalletAccess({ blobId, wallet: selectedWallet, allowed, controllerWallet = deployerWallet }) {
+      return write(controllerWallet, "setBlobWalletAccess", [
+        `0x${blobId.replace(/^0x/, "")}`,
+        selectedWallet,
+        Boolean(allowed)
+      ]);
+    },
+
+    async createBlobPaid({ wallet = deployerWallet, registration, value }) {
+      return write(wallet, "createBlobPaid", [paidRegistrationTuple(registration)], value);
+    },
+
+    async createBlobNamedPaid({ wallet = deployerWallet, registration, value }) {
+      return write(wallet, "createBlobNamedPaid", [paidRegistrationTuple(registration)], value);
+    },
+
     async createOperatorBlob({ blobId, commitment, size, chunkSize, dataShards, totalShards, expiresAt }) {
       return write(deployerWallet, "createOperatorBlob", [
         `0x${blobId.replace(/^0x/, "")}`,
@@ -217,6 +391,15 @@ export function createFlareRegistry({
       return write(deployerWallet, "finalizeBlob", [`0x${blobId.replace(/^0x/, "")}`]);
     },
 
+    async claimProviderSettlement({ blobId, providerId, shardIndices }) {
+      const provider = providerWallets.get(String(providerId));
+      if (!provider) throw new Error(`missing wallet for ${providerId}`);
+      return write(provider.wallet, "claimProviderSettlement", [
+        `0x${blobId.replace(/^0x/, "")}`,
+        shardIndices.map((shardIndex) => Number(shardIndex))
+      ]);
+    },
+
     async startRecovery(blobId, shardIndex) {
       return write(deployerWallet, "startRecovery", [`0x${blobId.replace(/^0x/, "")}`, Number(shardIndex)]);
     },
@@ -236,6 +419,14 @@ export function createFlareRegistry({
         resolveProviderId(providerId),
         `0x${commitment.replace(/^0x/, "")}`
       ]);
+    },
+
+    async getBlobPolicy(blobId) {
+      return readBlobPolicy(blobId);
+    },
+
+    async getBlobPayment(blobId) {
+      return readBlobPayment(blobId);
     },
 
     async getBlob(blobId) {
@@ -310,7 +501,9 @@ export function createFlareRegistry({
         nameHash,
         blobName,
         placement,
-        acknowledgements
+        acknowledgements,
+        policy: await readBlobPolicy(blobId),
+        payment: await readBlobPayment(blobId)
       };
     },
 

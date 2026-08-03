@@ -37,6 +37,30 @@ export class MemoryRegistry {
       nameHash: "",
       origin: "user",
       status: "pending",
+      policy: {
+        storageMode: 0,
+        storageModeName: "public",
+        accessPolicy: 0,
+        accessPolicyName: "owner_only",
+        policyCommitment: "",
+        keyEnvelopeCommitment: "",
+        metadataCommitment: ""
+      },
+      payment: {
+        asset: 0,
+        assetName: "native_flare",
+        status: 0,
+        statusName: "none",
+        payer: "",
+        totalPaid: 0n,
+        providerPool: 0n,
+        providerRewardPerShard: 0n,
+        protocolFee: 0n,
+        providerSettled: 0n,
+        quoteCommitment: "",
+        paidAt: 0,
+        settledAt: 0
+      },
       placement: new Map(),
       acknowledgements: new Map()
     });
@@ -119,6 +143,14 @@ export class MemoryRegistry {
     blob.status = "active";
   }
 
+  async getBlobPolicy(blobId) {
+    return this.blobs.get(blobId)?.policy || null;
+  }
+
+  async getBlobPayment(blobId) {
+    return this.blobs.get(blobId)?.payment || null;
+  }
+
   async startRecovery(blobId, shardIndex) {
     const blob = this.blobs.get(blobId);
     if (!blob) fail("blob does not exist");
@@ -160,6 +192,8 @@ export class MemoryRegistry {
       blobName: blob.blobName,
       nameHash: blob.nameHash,
       status: blob.status,
+      policy: blob.policy,
+      payment: blob.payment,
       placement: Object.fromEntries(blob.placement),
       acknowledgements: [...blob.acknowledgements.values()]
     };

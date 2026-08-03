@@ -2,7 +2,7 @@
 
 Prime Server exposes a developer-facing blob API at `/prime/v1`. Public writes keep ownership on Flare. The client prepares and registers the blob with the user wallet, then Prime RPC verifies that registration before it accepts the original bytes.
 
-The current implementation is Coston2 testnet infrastructure. It supports one-shot blobs up to 2 MiB, wallet sessions, object names, listing, metadata, full downloads, and byte ranges. Multipart uploads, S3 compatibility, and payment sessions are planned follow-up slices.
+The current implementation is Coston2 testnet infrastructure. It supports one-shot blobs up to 2 MiB, wallet sessions, object names, listing, metadata, full downloads, byte ranges, native paid registration, encrypted storage preparation, and policy commitments. Multipart uploads, S3 compatibility, cross-chain payment settlement, and live FCC compute are follow-up slices.
 
 ## Authentication
 
@@ -20,7 +20,7 @@ The session token is sent as:
 Authorization: Bearer <token>
 ```
 
-The session proves that the caller may use the API. It supports rate limiting and account-scoped API access. It does not authorize ownership and it does not create the blob. Ownership comes from the wallet transaction that calls `createBlobNamed` on the configured registry.
+The session proves that the caller may use the API. It supports rate limiting and account-scoped API access. It does not authorize ownership and it does not create the blob. Ownership comes from the wallet transaction that calls `createBlobNamed` or `createBlobNamedPaid` on the configured registry.
 
 ## Blob API
 
@@ -43,6 +43,18 @@ x-prime-data-shards: 2
 x-prime-total-shards: 4
 x-prime-expires-at: 1780000000
 ```
+
+Paid uploads add the policy and payment cross-checks:
+
+```http
+x-prime-storage-mode: 0
+x-prime-access-policy: 0
+x-prime-policy-commitment: 0x...
+x-prime-key-envelope-commitment: 0x0000000000000000000000000000000000000000000000000000000000000000
+x-prime-metadata-commitment: 0x0000000000000000000000000000000000000000000000000000000000000000
+```
+
+The paid wallet transaction quotes native Flare from the registry and sends the payment together with the blob registration. Prime RPC accepts the upload only while the registry payment is escrowed. Finalization makes the provider pool claimable, and the coordinator submits provider claim transactions. The current claim slice pays the final placement providers. Recovery provider rewards are still a separate settlement slice.
 
 Example registration-first request after `createBlobNamed` confirms:
 
@@ -71,7 +83,13 @@ curl \
   -H "Range: bytes=0-1023"
 ```
 
-The response includes the Prime blob ID, commitment, owner-scoped name hash, origin, expiration, ETag, and recovery headers. The Flare registry stores the owner, name hash, full blob name, commitment, placement, acknowledgements, and lifecycle state.
+The response includes the Prime blob ID, commitment, owner-scoped name hash, origin, expiration, storage mode, access policy, payment status, ETag, and recovery headers. The Flare registry stores the owner, name hash, full blob name, commitment, placement, acknowledgements, policy, payment, and lifecycle state.
+
+Private storage
+
+The SDK encrypts the file locally with AES-256-GCM before it prepares the Clay commitment. The provider and RPC receive only the ciphertext. A sealed key envelope is committed on Flare and is intended for the FCC extension. The current repository can create and verify the envelope shape locally. It does not claim a live TEE release until FCC is deployed and attestation is checked.
+
+Confidential storage uses the same encrypted upload path with `compute_only` access. The gateway refuses raw reads for those blobs. The wallet can create a fresh EIP-712 access intent bound to a temporary device public-key commitment. The registry enforces the wallet authorization and nonce. An FCC controller must consume the intent with a response commitment before a future compute result can be released.
 
 ## JavaScript client
 
@@ -99,11 +117,31 @@ const prepared = await prime.prepareBlob(bytes, {
 await prime.registerBlob(prepared);
 await prime.uploadRegisteredBlob(prepared, bytes, { contentType: "text/plain" });
 
+const paidPrepared = await prime.prepareBlob(bytes, {
+  name: "reports/paid.txt",
+  expirationSeconds: 86_400
+});
+await prime.registerPaidBlob(paidPrepared, {
+  storageMode: "public",
+  accessPolicy: "owner_only"
+});
+await prime.uploadRegisteredBlob(paidPrepared, bytes, { contentType: "text/plain" });
+
+const encrypted = await prime.prepareEncryptedBlob(bytes, {
+  name: "opaque/private.bin",
+  storageMode: "private",
+  accessPolicy: "owner_only",
+  fccPublicKey: teePublicKey,
+  expirationSeconds: 86_400
+});
+await prime.registerPaidBlob(encrypted);
+await prime.uploadRegisteredBlob(encrypted, encrypted.ciphertext);
+
 const listing = await prime.list({ prefix: "reports/" });
 const file = await prime.get("reports/hello.txt");
 ```
 
-`prime.put(...)` is a convenience wrapper around preparation, direct registration, and registered upload. The SDK requires a wallet client, public client, and registry address because the upload must wait for a successful onchain registration receipt.
+`prime.put(...)` is a convenience wrapper around preparation, direct registration, and registered upload. Pass `paid: true` for native paid registration, or use `prime.putPaid(...)`. Encrypted preparations are uploaded with `encrypted.ciphertext`, not the original plaintext. The SDK requires a wallet client, public client, and registry address because the upload must wait for a successful onchain registration receipt.
 
 ## Product boundary
 

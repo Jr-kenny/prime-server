@@ -2,13 +2,17 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFile as execFileCallback, spawn } from "node:child_process";
 import { promisify } from "node:util";
-import { createHash } from "node:crypto";
+import { createECDH, createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { startProviderProcess, startProviderProcesses, stopProviderProcesses, waitForProcessExit } from "../../scripts/providers.mjs";
 import { createCoston2Chain, createFlareRegistry } from "../src/flare-registry.mjs";
 import { createPrimeRpcServer } from "../src/server.mjs";
+import { PrimeAuthManager } from "../src/auth.mjs";
+import { JsonOperationalStore } from "../src/operational-store.mjs";
+import { decryptBlob } from "../../sdk/src/encryption.mjs";
+import { createPrimeServerClient } from "../../sdk/src/client.mjs";
 import { createPublicClient, createWalletClient, http, parseEther } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
@@ -85,7 +89,12 @@ test("Prime RPC writes an upload lifecycle to a real local EVM registry", async 
       dataRoot: path.join(root, "providers"),
       logRoot: path.join(root, "logs")
     });
-    const rpc = await createPrimeRpcServer({ providers: suite.providers, registry });
+    const rpc = await createPrimeRpcServer({
+      providers: suite.providers,
+      registry,
+      objectStore: new JsonOperationalStore(path.join(root, "objects.json")),
+      authManager: new PrimeAuthManager({ secret: "b".repeat(64), domain: "localhost" })
+    });
     await new Promise((resolve) => rpc.server.listen(0, "127.0.0.1", resolve));
     const rpcAddress = rpc.server.address();
     const input = Buffer.alloc(2 * 1024 * 1024, 7);
@@ -140,6 +149,114 @@ test("Prime RPC writes an upload lifecycle to a real local EVM registry", async 
       assert.equal(rebuildResult.status, "rebuilt");
       const rebuiltOnchain = await registry.getBlob(result.blobId);
       assert.equal(rebuiltOnchain.status, "rebuilt");
+
+      const user = privateKeyToAccount(generatePrivateKey());
+      const userWallet = createWalletClient({ account: user, chain, transport: http(rpcUrl) });
+      const fundingHash = await deployerWallet.sendTransaction({ to: user.address, value: parseEther("1") });
+      await publicClient.waitForTransactionReceipt({ hash: fundingHash });
+      const paidInput = Buffer.alloc(2 * 1024 * 1024, 9);
+      const paidEncoded = rpc.erasureEngine.encode(paidInput);
+      const paidBlobId = createHash("sha256").update("paid-local-blob").digest("hex");
+      const paidBlobName = "paid/report.bin";
+      const paidExpiresAt = Math.floor(Date.now() / 1000) + 3600;
+      const policyCommitment = `0x${createHash("sha256").update("public-owner-only-policy").digest("hex")}`;
+      const zeroBytes32 = `0x${"00".repeat(32)}`;
+      const quote = await registry.quoteNativePayment({ size: paidInput.length, totalShards: 4, storageMode: 0 });
+      await registry.createBlobNamedPaid({
+        wallet: userWallet,
+        registration: {
+          blobId: paidBlobId,
+          blobName: paidBlobName,
+          commitment: paidEncoded.clayChunksetRoot,
+          size: paidInput.length,
+          chunkSize: rpc.erasureEngine.config.chunkSizeBytes,
+          dataShards: rpc.erasureEngine.config.k,
+          totalShards: rpc.erasureEngine.config.n,
+          expiresAt: paidExpiresAt,
+          storageMode: 0,
+          accessPolicy: 0,
+          policyCommitment,
+          keyEnvelopeCommitment: zeroBytes32,
+          metadataCommitment: zeroBytes32
+        },
+        value: quote.total
+      });
+
+      const challenge = await (await fetch(`http://127.0.0.1:${rpcAddress.port}/prime/v1/auth/challenge?address=${user.address}`)).json();
+      const signature = await user.signMessage({ message: challenge.message });
+      const session = await (await fetch(`http://127.0.0.1:${rpcAddress.port}/prime/v1/auth/session`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ address: user.address, nonce: challenge.nonce, signature })
+      })).json();
+      const paidPutResponse = await fetch(`http://127.0.0.1:${rpcAddress.port}/prime/v1/blobs/${user.address}/${encodeURIComponent(paidBlobName)}`, {
+        method: "PUT",
+        headers: {
+          authorization: `Bearer ${session.token}`,
+          "content-type": "application/octet-stream",
+          "x-prime-blob-id": `0x${paidBlobId}`,
+          "x-prime-commitment": `0x${paidEncoded.clayChunksetRoot}`,
+          "x-prime-chunk-size": String(rpc.erasureEngine.config.chunkSizeBytes),
+          "x-prime-data-shards": String(rpc.erasureEngine.config.k),
+          "x-prime-total-shards": String(rpc.erasureEngine.config.n),
+          "x-prime-expires-at": String(paidExpiresAt),
+          "x-prime-storage-mode": "0",
+          "x-prime-access-policy": "0",
+          "x-prime-policy-commitment": policyCommitment,
+          "x-prime-key-envelope-commitment": zeroBytes32,
+          "x-prime-metadata-commitment": zeroBytes32
+        },
+        body: paidInput
+      });
+      const paidPutBody = await paidPutResponse.text();
+      assert.equal(paidPutResponse.status, 201, paidPutBody);
+      const paidPut = JSON.parse(paidPutBody);
+      assert.equal(paidPut.paymentStatus, "settled");
+      assert.equal(paidPut.providerSettlements.length, 4);
+      assert.equal((await registry.getBlobPayment(paidBlobId)).statusName, "settled");
+
+      const teeKey = createECDH("secp256k1");
+      teeKey.generateKeys();
+      const privateInput = Buffer.from("private local EVM payload");
+      const client = createPrimeServerClient({
+        baseUrl: `http://127.0.0.1:${rpcAddress.port}/prime/v1`,
+        wallet: {
+          address: user.address,
+          signMessage: ({ message }) => user.signMessage({ message })
+        },
+        walletClient: userWallet,
+        publicClient,
+        registryAddress: address,
+        chainId: 31337
+      });
+      const encrypted = await client.prepareEncryptedBlob(privateInput, {
+        name: "opaque/private.bin",
+        storageMode: "private",
+        accessPolicy: "owner_only",
+        fccPublicKey: `0x${teeKey.getPublicKey().toString("hex")}`,
+        expirationSeconds: 3600
+      });
+      const privateRegistration = await client.registerPaidBlob(encrypted);
+      const privateUpload = await client.uploadRegisteredBlob(encrypted, encrypted.ciphertext);
+      assert.equal(privateRegistration.policy.storageMode, 1);
+      assert.equal(privateUpload.storageMode, "private");
+      assert.equal(privateUpload.paymentStatus, "settled");
+      const encryptedRead = await client.get("opaque/private.bin");
+      assert.deepEqual(await decryptBlob(encryptedRead.bytes, encrypted.fileKey), privateInput);
+
+      const confidential = await client.prepareEncryptedBlob(Buffer.from("compute-only local payload"), {
+        name: "opaque/compute.bin",
+        storageMode: "confidential",
+        accessPolicy: "compute_only",
+        fccPublicKey: `0x${teeKey.getPublicKey().toString("hex")}`,
+        expirationSeconds: 3600
+      });
+      await client.registerPaidBlob(confidential);
+      await client.uploadRegisteredBlob(confidential, confidential.ciphertext);
+      await assert.rejects(
+        () => client.get("opaque/compute.bin"),
+        (error) => error?.status === 403
+      );
     } finally {
       await close(rpc.server);
       await stopProviderProcesses(suite);

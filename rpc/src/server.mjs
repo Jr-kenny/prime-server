@@ -18,7 +18,7 @@ class GatewayError extends Error {
 }
 
 function json(res, statusCode, body, extraHeaders = {}) {
-  const payload = Buffer.from(`${JSON.stringify(body)}\n`);
+  const payload = Buffer.from(`${JSON.stringify(body, (_key, value) => typeof value === "bigint" ? value.toString() : value)}\n`);
   res.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
     "content-length": payload.length,
@@ -109,6 +109,20 @@ function parseHeaderInteger(request, name, { required = false } = {}) {
   return parsed;
 }
 
+function parseHeaderEnum(request, name, names, { required = false } = {}) {
+  const value = request.headers[name];
+  if (value === undefined) {
+    if (required) throw new GatewayError(400, `${name} is required`);
+    return null;
+  }
+  const normalized = String(value).toLowerCase().replace(/-/g, "_");
+  const named = names.indexOf(normalized);
+  if (named !== -1) return named;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed >= names.length) throw new GatewayError(400, `${name} must be a supported value`);
+  return parsed;
+}
+
 function normalizeHex(value) {
   return String(value || "").replace(/^0x/, "").toLowerCase();
 }
@@ -149,6 +163,27 @@ function assertRegistrationMatchesRequest({ registration, blobId, account, name,
     const claimed = parseHeaderInteger(request, header);
     if (claimed !== null && claimed !== expected) throw new GatewayError(400, `${header} does not match the registered encoding`);
   }
+
+  const paymentStatus = registration.payment?.statusName;
+  if (paymentStatus && paymentStatus !== "none") {
+    if (paymentStatus !== "escrowed") throw new GatewayError(409, "paid blob registration is not awaiting upload");
+    const policy = registration.policy;
+    if (!policy || policy.storageModeName === "unknown") throw new GatewayError(502, "paid blob policy is unavailable from the registry");
+    const storageMode = parseHeaderEnum(request, "x-prime-storage-mode", ["public", "private", "confidential"], { required: true });
+    const accessPolicy = parseHeaderEnum(request, "x-prime-access-policy", ["owner_only", "selected_wallets", "compute_only"], { required: true });
+    if (storageMode !== policy.storageMode) throw new GatewayError(400, "x-prime-storage-mode does not match the registered policy");
+    if (accessPolicy !== policy.accessPolicy) throw new GatewayError(400, "x-prime-access-policy does not match the registered policy");
+    const policyClaims = [
+      ["x-prime-policy-commitment", policy.policyCommitment],
+      ["x-prime-key-envelope-commitment", policy.keyEnvelopeCommitment],
+      ["x-prime-metadata-commitment", policy.metadataCommitment]
+    ];
+    for (const [header, expected] of policyClaims) {
+      const claimed = request.headers[header];
+      if (claimed === undefined) throw new GatewayError(400, `${header} is required for paid uploads`);
+      if (normalizeHex(claimed) !== normalizeHex(expected)) throw new GatewayError(400, `${header} does not match the registered policy`);
+    }
+  }
 }
 
 function objectResponse(object, requestUrl, publicBaseUrl = "") {
@@ -165,12 +200,20 @@ function objectResponse(object, requestUrl, publicBaseUrl = "") {
     expiresAt: object.expiresAt,
     status: object.status,
     origin: object.origin,
+    storageMode: object.storageMode,
+    accessPolicy: object.accessPolicy,
+    policyCommitment: object.policyCommitment,
+    keyEnvelopeCommitment: object.keyEnvelopeCommitment,
+    metadataCommitment: object.metadataCommitment,
+    paymentStatus: object.paymentStatus,
+    paymentAsset: object.paymentAsset,
+    providerSettlements: object.providerSettlements,
     downloadUrl: `${apiBase}/blobs/${object.account}/${encodeURIComponent(object.name)}`
   };
 }
 
 function objectHeaders(object) {
-  return {
+  const headers = {
     "content-type": object.contentType || "application/octet-stream",
     "content-length": object.size,
     etag: `"${object.commitment}"`,
@@ -179,6 +222,15 @@ function objectHeaders(object) {
     "x-prime-expires-at": String(object.expiresAt),
     "accept-ranges": "bytes"
   };
+  if (object.storageMode !== undefined) headers["x-prime-storage-mode"] = String(object.storageMode);
+  if (object.accessPolicy !== undefined) headers["x-prime-access-policy"] = String(object.accessPolicy);
+  if (object.policyCommitment) headers["x-prime-policy-commitment"] = object.policyCommitment;
+  if (object.paymentStatus) headers["x-prime-payment-status"] = object.paymentStatus;
+  return headers;
+}
+
+function isComputeOnly(object) {
+  return object?.accessPolicy === 2 || object?.accessPolicy === "2" || object?.accessPolicy === "compute_only";
 }
 
 function applyCorsHeaders(response, origin) {
@@ -186,9 +238,9 @@ function applyCorsHeaders(response, origin) {
   response.setHeader("access-control-allow-methods", "GET,PUT,HEAD,POST,OPTIONS");
   response.setHeader(
     "access-control-allow-headers",
-    "authorization,content-type,range,x-prime-blob-id,x-prime-commitment,x-prime-chunk-size,x-prime-data-shards,x-prime-total-shards,x-prime-expires-at"
+    "authorization,content-type,range,x-prime-blob-id,x-prime-commitment,x-prime-chunk-size,x-prime-data-shards,x-prime-total-shards,x-prime-expires-at,x-prime-storage-mode,x-prime-access-policy,x-prime-policy-commitment,x-prime-key-envelope-commitment,x-prime-metadata-commitment"
   );
-  response.setHeader("access-control-expose-headers", "content-range,etag,x-prime-blob-id,x-prime-name-hash,x-prime-expires-at,x-prime-recovered,x-prime-missing-shards");
+  response.setHeader("access-control-expose-headers", "content-range,etag,x-prime-blob-id,x-prime-name-hash,x-prime-expires-at,x-prime-recovered,x-prime-missing-shards,x-prime-storage-mode,x-prime-access-policy,x-prime-policy-commitment,x-prime-payment-status");
   response.setHeader("access-control-max-age", "600");
 }
 
@@ -225,7 +277,13 @@ async function handleDeveloperRequest({
         clientPreparation: true,
         multipartUploads: false,
         s3Gateway: false,
-        payments: false
+        payments: typeof registry.quoteNativePayment === "function",
+        paymentAssets: typeof registry.quoteNativePayment === "function" ? ["native_flare"] : [],
+        atomicNativeRegistration: typeof registry.createBlobNamedPaid === "function",
+        crossChainPayments: false,
+        encryptedStorage: typeof registry.getBlobPolicy === "function",
+        confidentialAccessAuthorization: typeof registry.authorizeConfidentialAccess === "function",
+        confidentialCompute: false
       }
     });
     return true;
@@ -306,7 +364,15 @@ async function handleDeveloperRequest({
       createdAt: new Date().toISOString(),
       expiresAt: result.registry.expiresAt,
       status: result.status,
-      origin: result.registry.origin
+      origin: result.registry.origin,
+      storageMode: result.registry.policy?.storageModeName,
+      accessPolicy: result.registry.policy?.accessPolicyName,
+      policyCommitment: result.registry.policy?.policyCommitment,
+      keyEnvelopeCommitment: result.registry.policy?.keyEnvelopeCommitment,
+      metadataCommitment: result.registry.policy?.metadataCommitment,
+      paymentStatus: result.registry.payment?.statusName,
+      paymentAsset: result.registry.payment?.assetName,
+      providerSettlements: result.providerSettlements
     });
     const responseObject = objectResponse(stored, requestUrl, publicBaseUrl);
     response.writeHead(201, {
@@ -325,6 +391,7 @@ async function handleDeveloperRequest({
     return true;
   }
   if (request.method !== "GET") throw new GatewayError(405, "method not allowed");
+  if (isComputeOnly(object)) throw new GatewayError(403, "compute-only blobs require an FCC access result");
 
   const result = await readBlob({ blobId: object.blobId, providers, registry, erasureEngine });
   const range = parseRange(request.headers.range, result.bytes.length);
@@ -548,7 +615,9 @@ async function placeEncodedBlob({ input, encoded, blobId, providers, registry })
   }
 
   await registry.finalizeBlob(blobId);
-  const registryState = await registry.getBlob(blobId);
+  let registryState = await registry.getBlob(blobId);
+  const providerSettlements = await settleProviderClaims({ blobId, registryState, providers, registry });
+  if (providerSettlements.length > 0) registryState = await registry.getBlob(blobId);
   return {
     blobId,
     commitment: encoded.clayChunksetRoot,
@@ -558,8 +627,39 @@ async function placeEncodedBlob({ input, encoded, blobId, providers, registry })
     size: input.length,
     status: registryState?.status || "active",
     providers: receipts,
+    providerSettlements,
     registry: registryState
   };
+}
+
+async function settleProviderClaims({ blobId, registryState, providers, registry }) {
+  if (typeof registry.getBlobPayment !== "function" || typeof registry.claimProviderSettlement !== "function") return [];
+  const payment = registryState?.payment || await registry.getBlobPayment(blobId);
+  if (!payment || !["claimable", "partially_settled"].includes(payment.statusName)) return [];
+
+  const shardsByProvider = new Map();
+  for (let shardIndex = 0; shardIndex < registryState.totalShards; shardIndex += 1) {
+    const providerId = registryState.placement[String(shardIndex)] ?? registryState.placement[shardIndex];
+    if (!providerId) continue;
+    const shardIndices = shardsByProvider.get(String(providerId)) || [];
+    shardIndices.push(shardIndex);
+    shardsByProvider.set(String(providerId), shardIndices);
+  }
+
+  const settlements = [];
+  for (const [providerId, shardIndices] of shardsByProvider) {
+    const provider = providers.find((candidate) => String(candidate.providerId) === providerId);
+    if (!provider) throw new Error(`provider ${providerId} is required for settlement`);
+    const result = await registry.claimProviderSettlement({ blobId, providerId, shardIndices });
+    const reward = payment.providerRewardPerShard === undefined ? null : BigInt(payment.providerRewardPerShard);
+    settlements.push({
+      providerId,
+      shardIndices,
+      transaction: result?.hash || null,
+      amount: reward === null ? result?.amount?.toString?.() || null : (reward * BigInt(shardIndices.length)).toString()
+    });
+  }
+  return settlements;
 }
 
 export async function uploadRegisteredBlob({ input, blobId, blobName, account, registration, providers, registry, erasureEngine }) {
@@ -689,6 +789,14 @@ export async function createPrimeRpcServer({
       }
       const contentMatch = requestUrl.pathname.match(/^\/v1\/blobs\/([A-Za-z0-9._-]+)\/content$/);
       if (req.method === "GET" && contentMatch) {
+        const blob = await registry.getBlob(contentMatch[1]);
+        if (!blob) {
+          json(res, 404, { error: "blob not found" });
+          return;
+        }
+        if (blob.policy?.accessPolicyName === "compute_only" || blob.policy?.accessPolicy === 2) {
+          throw new GatewayError(403, "compute-only blobs require an FCC access result");
+        }
         const result = await readBlob({ blobId: contentMatch[1], providers, registry, erasureEngine: engine });
         const range = parseRange(req.headers.range, result.bytes.length);
         if (range?.invalid) {

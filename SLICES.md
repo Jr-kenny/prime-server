@@ -190,7 +190,7 @@ Acceptance:
 - A provider registration and blob creation transaction are independently readable.
 - The local evidence record contains chain ID, contract address, block numbers, and transaction hashes.
 
-Current output: the registry is deployed to Coston2 at `0x9864476bFFBe1d261419Bc6b1b6ec3c00CF65325`. The deployment succeeded in block `33577929`, the transaction hash is recorded in `docs/evidence/coston2-live-proof.md`, and the live bytecode matches the Solidity `0.8.24` build at 7,716 bytes. Four funded provider operators registered successfully and a real blob lifecycle was independently read from the chain.
+Current output: the replacement registry is deployed to Coston2 at `0x73f92b133e6259f170Bc42FA708F476CDE15AdD0`. The deployment succeeded in block `33585089`, the transaction is recorded in `docs/evidence/coston2-paid-live-proof.md`, and the live bytecode matches the Solidity `0.8.24` via-IR build at 23,489 bytes. Four funded provider operators registered successfully. The paid, private ciphertext, access-intent, and replacement-registry recovery proofs are recorded in the two Coston2 evidence documents.
 
 ## Slice 8: event indexer and recovery coordinator
 
@@ -237,7 +237,7 @@ real upload
 -> matching final hash
 ```
 
-Current output: `scripts/coston2-demo.mjs` ran the complete live proof on Coston2. A 2 MiB blob reached `active` after four provider acknowledgements. Provider 2 and provider 4 were stopped, shards 1 and 3 were removed from their storage paths, the original bytes were reconstructed from the two surviving shards, both missing shards were rebuilt, and the final state reached `rebuilt`. The input, recovered, and final SHA-256 hash were identical. The run evidence is saved under `.prime-server/evidence/coston2/` and summarized in `docs/evidence/coston2-live-proof.md`.
+Current output: `scripts/coston2-demo.mjs` ran the complete live proof on Coston2 against the replacement registry. A 2 MiB blob reached `active` after four provider acknowledgements. Provider 2 and provider 4 were stopped, shards 1 and 3 were removed from their storage paths, the original bytes were reconstructed from the two surviving shards, both missing shards were rebuilt, and the final state reached `rebuilt`. The input, recovered, and final SHA-256 hash were identical. The replacement run is `coston2-1785771713115-23093`, saved under `.prime-server/evidence/coston2/`, and summarized in `docs/evidence/coston2-live-proof.md`.
 
 ## Slice 10: operator view
 
@@ -258,69 +258,181 @@ Acceptance:
 - The complete demo can be understood without opening a terminal.
 - Raw evidence remains one click away.
 
-## Slice 11: protocol hardening
+## Architecture extension queue
 
-Status: `pending`
+These slices extend the proven storage and recovery core. They do not replace the direct wallet registration, Clay encoding, provider acknowledgement, or recovery boundaries above.
+
+## Slice 11: shared policy and native payment schema
+
+Status: `complete for native Flare, XRP settlement pending`
 
 Dependencies: Slice 9.
 
 Output:
 
-- Idempotent upload and recovery operations.
-- Input validation and bounded resource use.
-- Duplicate acknowledgement handling.
-- Provider restart recovery.
-- Structured logs with run IDs.
+- `StorageMode`, `AccessPolicy`, `PaymentAsset`, and `PaymentStatus` contract enums.
+- `BlobPolicy`, `BlobPayment`, and `PaidBlobRegistration` records.
+- Native quote, atomic wallet payment plus registration, escrow, refund, provider claim, and protocol fee paths.
+- SDK quote and paid-registration methods.
+- Prime RPC payment and policy cross-checks.
+
+Acceptance:
+
+- Foundry tests prove policy recording, atomic native escrow, provider claims, fee accounting, and pending refund rules.
+- A real local EVM test registers a paid blob, uploads it through the developer API, settles all four placement providers, and reads the settled payment state.
+- The registry runtime stays below EIP-170 under the configured via-IR build.
+
+Evidence: 8 Foundry tests pass. SDK and RPC suites pass. The real local EVM paid upload and four-provider settlement test passes. The fresh Coston2 paid run is recorded in `docs/evidence/coston2-paid-live-proof.md`. Runtime size is 23,489 bytes against the 24,576-byte limit.
+
+## Slice 12: client-side encryption and FCC envelope preparation
+
+Status: `locally complete`
+
+Dependencies: Slice 11.
+
+Output:
+
+- AES-256-GCM client-side encryption.
+- Clay commitment over ciphertext.
+- ECIES-style envelope sealed to an FCC public key.
+- Key-envelope and metadata commitments.
+- SDK support for private and confidential preparation.
+
+Acceptance:
+
+- A prepared encrypted blob decrypts locally with the in-memory key.
+- The Clay commitment matches the ciphertext sent to the provider engine.
+- The serialized envelope contains no plaintext file key.
+- Private and confidential policy combinations are rejected when invalid.
+
+Evidence: SDK encryption tests pass. This slice has local cryptographic and commitment evidence only. It does not claim a live FCC key release.
+
+## Slice 13: wallet authorization and confidential access boundary
+
+Status: `locally complete, live FCC controller pending`
+
+Dependencies: Slice 12.
+
+Output:
+
+- EIP-712 confidential access intent in the registry.
+- Device-key commitment, deadline, purpose, and per-requester nonce.
+- Selected-wallet policy entries.
+- Controller-only access result consumption with a response commitment.
+- SDK device-key and authorization helpers.
+- Compute-only read rejection in Prime RPC.
+
+Acceptance:
+
+- A valid owner signature creates one access intent.
+- A replayed nonce is rejected.
+- A consumed request cannot be reused.
+- A device-key commitment is present in the onchain intent.
+- Confidential bytes are not returned by the gateway without an FCC result.
+
+Evidence: Foundry, SDK, and RPC tests pass locally. A real FCC extension, approved code identity, TEE registration, attestation, and key rewrap proof are still required before live confidentiality claims.
+
+## Slice 14: Flare Confidential Compute extension
+
+Status: `pending`
+
+Dependencies: Slice 13 and FCC deployment inputs.
+
+Output:
+
+- Prime Server FCC extension and instruction sender.
+- Envelope ingestion inside the TEE.
+- Wallet authorization and replay checks tied to the registry request.
+- Device-bound key rewrap for private viewing.
+- Approved code hash and attestation evidence.
+
+Acceptance:
+
+- Providers and Prime RPC receive ciphertext only.
+- The registered FCC extension consumes a fresh request and returns a device-bound key package.
+- The browser decrypts locally on a second device using the same wallet.
+- The proof identifies the extension, code hash, TEE identity, request ID, and response commitment.
+
+## Slice 15: XRP, FDC, and FAssets settlement
+
+Status: `pending`
+
+Dependencies: Slice 11 and a real escrow or attested external-payment settlement design.
+
+Output:
+
+- XRP payment quote and payment intent.
+- FDC proof of the external payment.
+- FXRP or escrow settlement path.
+- Explicit refund and expiry handling.
+
+Acceptance:
+
+- A real external payment is independently proven by an FDC attestation or contract escrow.
+- Prime Server does not label XRP as atomic until the external payment and storage registration have a verified settlement boundary.
+
+## Slice 16: combined payment, privacy, failure, recovery, and access proof
+
+Status: `pending`
+
+Dependencies: Slice 11, Slice 12, Slice 13, and Slice 14.
+
+Output:
+
+```text
+native payment
+-> encrypted client preparation
+-> wallet registration
+-> ciphertext upload
+-> provider settlement
+-> provider failure
+-> reconstruction and rebuild
+-> FCC authorization
+-> device-bound result
+-> local decryption or confidential result
+```
+
+Acceptance:
+
+- Every stage has a current receipt, event, hash, or attestation record.
+- The final evidence clearly separates local, onchain, provider, and FCC proof.
+
+## Slice 17: explorer and developer observability
+
+Status: `pending`
+
+Dependencies: Slice 16 and stable event, API, and contract fields.
+
+Output:
+
+- Blob and payment explorer.
+- Provider placement and acknowledgement view.
+- Recovery timeline.
+- Policy and confidential access status.
+- Direct links to Flare transactions and attestation evidence.
+
+Acceptance:
+
+- A reviewer can follow one blob from quote through storage, failure, recovery, payment settlement, and access result without opening a terminal.
+
+## Slice 18: protocol hardening
+
+Status: `pending`
+
+Dependencies: Slice 17.
+
+Output:
+
+- Persistent challenge nonces, rate limits, and session revocation.
+- Idempotent paid upload and settlement operations.
+- Expiry cleanup and reusable owner-scoped names.
+- Recovery settlement reserve for replacement providers.
 - Contract and service security review.
 
 Acceptance:
 
-- The end-to-end proof passes twice from a clean state.
-- No private key, secret, or unsupported production claim enters Git.
-
-## Slice 12: Flare-specific extension
-
-Status: `pending`
-
-Dependencies: Slice 9.
-
-Choose one extension only after the core network proof is complete:
-
-- FDC verification of an external payment or asset event.
-- Flare-native asset settlement.
-- FCC-protected storage policy or confidential key release.
-
-Acceptance:
-
-- The extension has a real Flare proof and a clear role in the storage lifecycle.
-- The core failure and recovery path still works if the extension is disabled.
-
-## Slice 13: developer-facing storage protocol
-
-Status: `in progress`
-
-Dependencies: Slice 9.
-
-Output:
-
-- Wallet-signature sessions.
-- Client-side erasure preparation and commitment calculation.
-- Direct wallet registration of expiring named blobs on Flare, with an owner-scoped onchain name index.
-- Registered-upload verification for owner, name, size, expiry, parameters, and commitment.
-- Explicit operator-owned creation methods with no arbitrary beneficiary owner.
-- Named object API with upload, list, metadata, full download, and range reads.
-- JavaScript SDK for external applications.
-- Stable API base path under `/prime/v1`.
-
-Acceptance:
-
-- A wallet signs in without exposing a private key to the gateway.
-- A wallet registers the blob directly on a local EVM registry, and the full name, name hash, origin, and owner are readable from chain state.
-- A registered upload is rejected when the request owner, name, size, expiry, parameters, or recomputed commitment differs from the registration.
-- An external client can put, list, head, download, and range-read a named object.
-- The API returns a clear capability document and does not claim S3 or payment support before those layers exist.
-
-Current output: the contract, local EVM adapter, provider acknowledgement context, gateway, SDK, protocol identity notes, and gateway integration test are implemented. `forge test`, the RPC and provider suites, and the SDK suite pass. Live Coston2 redeployment remains before this slice can be marked complete against the public network. The earlier Coston2 proof address must not be reused because it predates the new registry getter and operator boundary.
+- The combined proof can be rerun from a clean state.
+- No private key, secret, mock receipt, or unsupported production claim enters Git.
 
 ## Handoff rule for future sessions
 

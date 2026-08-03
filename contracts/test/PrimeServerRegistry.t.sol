@@ -3,6 +3,13 @@ pragma solidity ^0.8.24;
 
 import {PrimeServerRegistry} from "../src/PrimeServerRegistry.sol";
 
+interface PrimeServerVm {
+    function deal(address who, uint256 newBalance) external;
+    function addr(uint256 privateKey) external returns (address);
+    function sign(uint256 privateKey, bytes32 digest) external returns (uint8 v, bytes32 r, bytes32 s);
+    function prank(address sender) external;
+}
+
 contract PrimeServerActor {
     function register(PrimeServerRegistry registry, string calldata endpoint, bytes32 signingKey)
         external
@@ -15,6 +22,13 @@ contract PrimeServerActor {
         registry.setProviderStatus(providerId, active);
     }
 
+    function createNamedPaid(
+        PrimeServerRegistry registry,
+        PrimeServerRegistry.PaidBlobRegistration calldata registration
+    ) external payable {
+        registry.createBlobNamedPaid{value: msg.value}(registration);
+    }
+
     function acknowledge(
         PrimeServerRegistry registry,
         bytes32 blobId,
@@ -24,6 +38,15 @@ contract PrimeServerActor {
     ) external {
         registry.acknowledgeShard(blobId, shardIndex, shardCommitment, shardSize);
     }
+
+    function claimSettlement(PrimeServerRegistry registry, bytes32 blobId, uint8[] calldata shardIndices)
+        external
+        returns (uint256)
+    {
+        return registry.claimProviderSettlement(blobId, shardIndices);
+    }
+
+    receive() external payable {}
 
     function createNamed(
         PrimeServerRegistry registry,
@@ -58,6 +81,7 @@ contract PrimeServerActor {
 
 contract PrimeServerRegistryTest {
     PrimeServerRegistry internal registry;
+    PrimeServerVm internal constant vm = PrimeServerVm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     function setUp() public {
         registry = new PrimeServerRegistry();
@@ -202,6 +226,204 @@ contract PrimeServerRegistryTest {
         require(exists, "direct blob should exist");
         require(storedExpiry == expiresAt, "direct blob expiry mismatch");
         require(keccak256(bytes(registry.blobNames(blobId))) == keccak256(bytes(blobName)), "direct blob name mismatch");
+    }
+
+    function testPaidRegistrationRecordsPolicyAndSettlesProviders() public {
+        (PrimeServerActor p1, PrimeServerActor p2, PrimeServerActor p3, PrimeServerActor p4) = _registerFour();
+        PrimeServerActor user = new PrimeServerActor();
+        bytes32 blobId = keccak256("paid-user-owned-blob");
+        bytes32 policyCommitment = keccak256("public-owner-only-policy");
+        string memory blobName = "paid/hello.txt";
+        uint64 expiresAt = uint64(block.timestamp + 7 days);
+
+        (uint256 providerPool, uint256 protocolFee, uint256 providerRewardPerShard) =
+            _registerPaidBlob(registry, user, blobId, blobName, expiresAt, policyCommitment);
+
+        _settlePaidBlob(registry, blobId, p1, p2, p3, p4);
+
+        _assertSettled(registry, blobId, providerPool);
+        require(address(p1).balance == providerRewardPerShard, "provider one payout mismatch");
+        require(address(p2).balance == providerRewardPerShard, "provider two payout mismatch");
+        require(address(p3).balance == providerRewardPerShard, "provider three payout mismatch");
+        require(address(p4).balance == providerRewardPerShard, "provider four payout mismatch");
+        require(registry.withdrawableProtocolFees() == protocolFee, "protocol fee should be withdrawable");
+    }
+
+    function testConfidentialAccessBindsWalletDeviceAndNonce() public {
+        uint256 userKey = 0x12345;
+        address user = vm.addr(userKey);
+        bytes32 blobId = keccak256("private-access-blob");
+        bytes32 policyCommitment = keccak256("private-owner-only-policy");
+        bytes32 keyEnvelopeCommitment = keccak256("fcc-key-envelope");
+        uint64 expiresAt = uint64(block.timestamp + 7 days);
+        (uint256 total,,,,) = registry.quoteNativePayment(1024, 4, PrimeServerRegistry.StorageMode.Private);
+        vm.deal(user, total);
+        vm.prank(user);
+        registry.createBlobNamedPaid{value: total}(
+            PrimeServerRegistry.PaidBlobRegistration({
+                blobId: blobId,
+                blobName: "opaque/private.bin",
+                commitment: keccak256("private-root"),
+                size: 1024,
+                chunkSize: 1024,
+                dataShards: 2,
+                totalShards: 4,
+                expiresAt: expiresAt,
+                storageMode: PrimeServerRegistry.StorageMode.Private,
+                accessPolicy: PrimeServerRegistry.AccessPolicy.OwnerOnly,
+                policyCommitment: policyCommitment,
+                keyEnvelopeCommitment: keyEnvelopeCommitment,
+                metadataCommitment: keccak256("private-metadata")
+            })
+        );
+
+        PrimeServerRegistry.ConfidentialAccessRequest memory request = PrimeServerRegistry.ConfidentialAccessRequest({
+            blobId: blobId,
+            requester: user,
+            deviceKeyCommitment: keccak256("temporary-device-key"),
+            nonce: 0,
+            deadline: uint64(block.timestamp + 600),
+            purpose: PrimeServerRegistry.AccessPurpose.View,
+            exists: false,
+            consumed: false
+        });
+        bytes32 digest = registry.hashConfidentialAccess(request);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(userKey, digest);
+        bytes32 requestId = registry.authorizeConfidentialAccess(request, abi.encodePacked(r, s, v));
+        require(registry.isConfidentialAccessUsable(requestId), "fresh access request should be usable");
+        require(registry.confidentialAccessNonces(blobId, user) == 1, "access nonce should advance");
+
+        registry.setConfidentialAccessController(address(this), true);
+        registry.recordConfidentialAccessResult(requestId, keccak256("device-wrapped-key"));
+        require(!registry.isConfidentialAccessUsable(requestId), "consumed access request should not be reusable");
+
+        (bool replaySucceeded,) = address(registry)
+            .call(
+                abi.encodeWithSelector(
+                    registry.authorizeConfidentialAccess.selector, request, abi.encodePacked(r, s, v)
+                )
+            );
+        require(!replaySucceeded, "access signature replay should be rejected");
+    }
+
+    function _settlePaidBlob(
+        PrimeServerRegistry target,
+        bytes32 blobId,
+        PrimeServerActor p1,
+        PrimeServerActor p2,
+        PrimeServerActor p3,
+        PrimeServerActor p4
+    ) internal {
+        target.assignShard(blobId, 0, target.providerIdByOperator(address(p1)));
+        target.assignShard(blobId, 1, target.providerIdByOperator(address(p2)));
+        target.assignShard(blobId, 2, target.providerIdByOperator(address(p3)));
+        target.assignShard(blobId, 3, target.providerIdByOperator(address(p4)));
+        p1.acknowledge(target, blobId, 0, bytes32(uint256(100)), 1024);
+        p2.acknowledge(target, blobId, 1, bytes32(uint256(101)), 1024);
+        p3.acknowledge(target, blobId, 2, bytes32(uint256(102)), 1024);
+        p4.acknowledge(target, blobId, 3, bytes32(uint256(103)), 1024);
+        target.finalizeBlob(blobId);
+
+        uint8[] memory shard0 = new uint8[](1);
+        shard0[0] = 0;
+        uint8[] memory shard1 = new uint8[](1);
+        shard1[0] = 1;
+        uint8[] memory shard2 = new uint8[](1);
+        shard2[0] = 2;
+        uint8[] memory shard3 = new uint8[](1);
+        shard3[0] = 3;
+        p1.claimSettlement(target, blobId, shard0);
+        p2.claimSettlement(target, blobId, shard1);
+        p3.claimSettlement(target, blobId, shard2);
+        p4.claimSettlement(target, blobId, shard3);
+    }
+
+    function _registerPaidBlob(
+        PrimeServerRegistry target,
+        PrimeServerActor user,
+        bytes32 blobId,
+        string memory blobName,
+        uint64 expiresAt,
+        bytes32 policyCommitment
+    ) internal returns (uint256 providerPool, uint256 protocolFee, uint256 providerRewardPerShard) {
+        uint256 total;
+        bytes32 quoteCommitment;
+        (total, providerPool, protocolFee, providerRewardPerShard, quoteCommitment) =
+            target.quoteNativePayment(2048, 4, PrimeServerRegistry.StorageMode.Public);
+        vm.deal(address(user), total);
+
+        PrimeServerRegistry.PaidBlobRegistration memory registration = PrimeServerRegistry.PaidBlobRegistration({
+            blobId: blobId,
+            blobName: blobName,
+            commitment: keccak256("ciphertext-or-public-root"),
+            size: 2048,
+            chunkSize: 1024,
+            dataShards: 2,
+            totalShards: 4,
+            expiresAt: expiresAt,
+            storageMode: PrimeServerRegistry.StorageMode.Public,
+            accessPolicy: PrimeServerRegistry.AccessPolicy.OwnerOnly,
+            policyCommitment: policyCommitment,
+            keyEnvelopeCommitment: bytes32(0),
+            metadataCommitment: bytes32(0)
+        });
+        user.createNamedPaid{value: total}(target, registration);
+
+        _assertPaidRegistration(target, blobId, user, expiresAt, policyCommitment);
+        _assertEscrow(target, blobId, user, total, providerPool, protocolFee, providerRewardPerShard, quoteCommitment);
+    }
+
+    function _assertPaidRegistration(
+        PrimeServerRegistry target,
+        bytes32 blobId,
+        PrimeServerActor user,
+        uint64 expiresAt,
+        bytes32 policyCommitment
+    ) internal view {
+        (address owner,,,,,,,, bool exists, uint64 storedExpiry, PrimeServerRegistry.BlobOrigin origin) =
+            target.blobs(blobId);
+        require(owner == address(user), "paid blob owner mismatch");
+        require(exists, "paid blob should exist");
+        require(storedExpiry == expiresAt, "paid expiry mismatch");
+        require(origin == PrimeServerRegistry.BlobOrigin.User, "paid origin mismatch");
+
+        PrimeServerRegistry.BlobPolicy memory policy = target.getBlobPolicy(blobId);
+        require(policy.storageMode == PrimeServerRegistry.StorageMode.Public, "storage mode mismatch");
+        require(policy.accessPolicy == PrimeServerRegistry.AccessPolicy.OwnerOnly, "access policy mismatch");
+        require(policy.policyCommitment == policyCommitment, "policy commitment mismatch");
+        require(policy.keyEnvelopeCommitment == bytes32(0), "public key envelope should be empty");
+        require(policy.metadataCommitment == bytes32(0), "public metadata commitment should be empty");
+    }
+
+    function _assertEscrow(
+        PrimeServerRegistry target,
+        bytes32 blobId,
+        PrimeServerActor user,
+        uint256 total,
+        uint256 providerPool,
+        uint256 protocolFee,
+        uint256 providerRewardPerShard,
+        bytes32 quoteCommitment
+    ) internal view {
+        PrimeServerRegistry.BlobPayment memory payment = target.getBlobPayment(blobId);
+        require(payment.asset == PrimeServerRegistry.PaymentAsset.NativeFlare, "payment asset mismatch");
+        require(payment.status == PrimeServerRegistry.PaymentStatus.Escrowed, "payment should be escrowed");
+        require(payment.payer == address(user), "payer mismatch");
+        require(payment.totalPaid == total, "total payment mismatch");
+        require(payment.providerPool == providerPool, "provider pool mismatch");
+        require(payment.providerRewardPerShard == providerRewardPerShard, "provider reward mismatch");
+        require(payment.protocolFee == protocolFee, "protocol fee mismatch");
+        require(payment.providerSettled == 0, "providers should not be settled yet");
+        require(payment.quoteCommitment == quoteCommitment, "quote commitment mismatch");
+        require(payment.paidAt > 0, "payment timestamp missing");
+        require(payment.settledAt == 0, "settlement timestamp should be empty");
+    }
+
+    function _assertSettled(PrimeServerRegistry target, bytes32 blobId, uint256 providerPool) internal view {
+        PrimeServerRegistry.BlobPayment memory payment = target.getBlobPayment(blobId);
+        require(payment.status == PrimeServerRegistry.PaymentStatus.Settled, "payment should be settled");
+        require(payment.providerSettled == providerPool, "provider settlement total mismatch");
+        require(payment.settledAt > 0, "settlement timestamp missing");
     }
 
     function _registerFour()

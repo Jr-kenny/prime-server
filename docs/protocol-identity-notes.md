@@ -6,7 +6,7 @@ This note records the protocol decisions used for Prime Server’s developer lay
 
 Prime Server identifies a developer blob by an owner wallet and a user-defined name. The owner controls the namespace, names are unique within that namespace, names can contain `/`, and names cannot end in `/`.
 
-The write behavior is:
+The public unpaid write behavior is:
 
 1. The client computes the erasure encoding and commitment locally.
 2. The owner wallet calls `createBlobNamed` directly on the Flare registry.
@@ -31,6 +31,10 @@ Prime Server carries this identity into the Flare registry:
 
 The public gateway authenticates the wallet for API access only. It never chooses the owner for a public blob. The coordinator performs provider placement, acknowledgement aggregation, finalization, and recovery after reading the user registration. Operator-created internal blobs use separate operator methods and are recorded with `Operator` origin.
 
+The native paid write behavior keeps the same ownership boundary while adding a policy and payment tuple. The client prepares encryption and policy metadata when required, computes the Clay commitment over the bytes that will be uploaded, reads the native quote, and sends payment plus `createBlobNamedPaid` in one wallet transaction. The registry records `msg.sender` as the owner and holds the amount in escrow. Prime RPC checks that payment is still escrowed, verifies the policy commitments, stores the registered bytes, finalizes the blob, and submits provider settlement claims.
+
+Private and confidential modes commit the FCC key envelope without exposing the file key to Prime RPC. Confidential access uses a fresh EIP-712 request with a device-key commitment and a monotonic nonce. The contract records the request and allows an explicitly configured FCC access controller to consume it with a response commitment. This is an attested, verifiable, trust-minimized boundary until a live FCC extension and attestation proof is available.
+
 ## Acknowledgement binding
 
 Provider acknowledgement payloads include the chain ID, registry address, blob ID, owner, name hash, shard index, shard commitment, shard size, and provider ID. The RPC verifies the signed payload before the memory adapter accepts it. The Flare adapter submits the acknowledgement from the registered provider operator, binding the transaction to the deployed registry and network.
@@ -45,7 +49,9 @@ The current developer layer deliberately keeps these capabilities explicit:
 - expiry hides expired objects at the gateway, while provider deletion and name reuse remain planned lifecycle work
 - names are public registry metadata, so private workloads should use opaque names until encrypted metadata is added
 - challenge persistence, rate limiting, and session revocation remain public-auth hardening work
-- payment and read micropayment sessions are not enabled
+- native paid registration and final-placement provider claims are implemented locally, while Coston2 deployment and evidence remain pending for the new registry build
+- XRP, FDC, and FAssets settlement are not enabled until a real escrow or attestation path exists
+- live FCC key release and confidential compute are not enabled by local mocks
 - the four-provider deployment is a compact Coston2 network, with larger provider topologies planned
 
 These are follow-up protocol slices. They do not change the owner and named-blob identity present in the contract and gateway.

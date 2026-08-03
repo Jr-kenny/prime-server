@@ -4,7 +4,7 @@
 
 Prime Server is an independent, Flare-native decentralized blob storage network.
 
-It gives users a storage API while using multiple independent provider processes to store erasure-coded data. Flare smart contracts act as the coordination and verification layer for providers, blob commitments, placement, acknowledgements, payment state, and recovery events.
+It gives users a storage API while using multiple independent provider processes to store erasure-coded data. Flare smart contracts act as the coordination and verification layer for providers, blob commitments, placement, acknowledgements, native payment escrow, access policy, and recovery events.
 
 The first target is a complete end-to-end network loop on Coston2 with four real providers. The four-provider topology is a compact test network that preserves the important protocol behavior and can later expand to a larger provider set.
 
@@ -21,6 +21,8 @@ The first release is successful only when all of these are true in one reproduci
 - The download path reconstructs the original bytes from surviving shards.
 - Missing shards can be rebuilt onto replacement or restarted providers.
 - The final file hash matches the original hash.
+- A paid registration records native payment escrow atomically with the blob and settles the providers that acknowledged the final placement.
+- Private storage sends ciphertext, rather than plaintext, through the RPC and provider data plane.
 - The demo records contract addresses, transaction hashes, provider logs, and recovery evidence.
 
 ## 3. System boundary
@@ -65,6 +67,9 @@ The first contract is the source of truth for the demo network. It will support:
 - Provider acknowledgements for stored shard commitments.
 - Blob finalization after the required acknowledgements arrive.
 - Recovery and rebuild records when a missing shard is recreated.
+- Native Flare payment quote, escrow, provider claim, refund, and protocol fee state.
+- Storage mode, access policy, ciphertext key-envelope commitment, and metadata commitment.
+- Replay-protected confidential access intents signed by an authorized wallet and bound to a temporary device key.
 - Events for the RPC indexer and the demo evidence log.
 
 The contract must not store file bytes. It stores commitments, identifiers, and state transitions that can be independently checked.
@@ -111,9 +116,11 @@ GET  /v1/providers
 GET  /health
 ```
 
-The developer upload path has a registration-first boundary. The client erasure-codes the input and computes the Clay commitment locally. The user wallet submits `createBlobNamed` directly to Flare and waits for confirmation. The client then sends the original bytes and the registration identifier to Prime RPC. RPC reads the registration from Flare, recomputes the encoding and commitment, checks the owner, name, size, expiry, and supported parameters, then distributes the shards and records acknowledgements. The gateway session authenticates API access and rate limits, but it never creates a user-owned blob or determines its owner.
+The developer upload path has a registration-first boundary. The client encrypts first for private or confidential mode, prepares the FCC key envelope and policy commitment, then computes the Clay commitment over the plaintext or ciphertext. The user wallet can atomically pay and submit `createBlobNamedPaid` directly to Flare, then waits for confirmation. The client sends the matching bytes and registration identifier to Prime RPC. RPC reads the registration from Flare, recomputes the encoding and commitment, checks the owner, name, size, expiry, policy, payment state, and supported parameters, then distributes the shards and records acknowledgements. The gateway session authenticates API access and rate limits, but it never creates a user-owned blob or determines its owner.
 
 The contract also exposes explicit operator creation methods for coordinator-owned internal objects. Those methods set the coordinator as owner and record `Operator` origin. They cannot assign a user wallet as the owner.
+
+Paid user creation holds the quoted native amount in registry escrow until finalization. Providers claim rewards for acknowledged placement shards. Recovery payouts are a separate settlement slice and are not included in the first claim path.
 
 The target download path reads enough surviving shards to reconstruct the requested bytes. The current first implementation reconstructs the complete object and then applies HTTP range slicing, so efficient shard-range retrieval remains a separate slice. The developer API adds a JavaScript SDK, while multipart uploads and an S3-compatible gateway remain planned compatibility layers.
 
@@ -132,7 +139,15 @@ The coordinator is responsible for:
 
 The current single-coordinator implementation uses an atomic JSON operational store for its cursor and recovery queue. The protocol boundary leaves room for SQLite or Postgres when the network becomes multi-hosted.
 
-The repository includes an explicit `MemoryRegistry` adapter for local integration tests. It verifies provider public-key signatures and enforces the same placement and acknowledgement rules without claiming to be Flare state. The production path will use a Flare contract adapter.
+The repository includes an explicit `MemoryRegistry` adapter for local integration tests. It verifies provider public-key signatures and enforces the same placement and acknowledgement rules without claiming to be Flare state. The production path uses the Flare contract adapter.
+
+### 4.5 Policy and confidential access
+
+Public, private, and confidential blobs use the same provider and Clay data plane. Private and confidential clients encrypt before Clay encoding, so Prime RPC, providers, and the chain only receive the ciphertext commitment and encrypted bytes. The SDK creates an AES-GCM ciphertext and an ECIES-style envelope sealed to the configured FCC public key. The envelope commitment is recorded on Flare. The file key stays in client memory and inside the sealed envelope. It is never sent as plaintext to Prime RPC.
+
+The registry records an access intent only after it verifies an EIP-712 wallet signature. The intent binds the blob ID, requester, device-key commitment, nonce, deadline, and purpose. The nonce prevents replay. A configured FCC access controller can consume the intent with a response commitment after it has rewrapped the file key for the temporary device key. This is the attested, verifiable, trust-minimized boundary. The repository does not claim a live FCC TEE result until the real extension and attestation flow is deployed.
+
+Confidential mode is compute-only. The developer read path refuses raw bytes for that mode until a verified FCC compute result exists. Private mode permits the owner or selected wallet to retrieve ciphertext for local decryption.
 
 ## 5. Data model
 
@@ -152,6 +167,13 @@ placementGroup     provider identifiers
 status             pending, active, recovering, rebuilt, revoked
 origin             User or Operator
 expiresAt          optional UNIX expiry recorded on Flare
+storageMode        Public, Private, or Confidential
+accessPolicy       OwnerOnly, SelectedWallets, or ComputeOnly
+policyCommitment   commitment to the access and confidentiality policy
+keyEnvelopeCommitment commitment to the FCC-sealed file-key envelope
+metadataCommitment commitment to encrypted or opaque metadata
+paymentStatus      None, Escrowed, Claimable, PartiallySettled, Settled, or Refunded
+paymentAsset       NativeFlare in the current paid slice
 ```
 
 ### Provider
@@ -179,6 +201,32 @@ size               stored shard size
 signature          provider signature over the acknowledgement
 ```
 
+### Blob payment
+
+```text
+asset                  NativeFlare in the current implementation
+status                 escrowed before upload, claimable after finalization
+totalPaid              amount held by the registry
+providerPool           amount reserved for final placement providers
+providerRewardPerShard reward for one acknowledged shard
+protocolFee            fee released after provider settlement
+providerSettled        amount already claimed by providers
+quoteCommitment        chain and registry bound quote commitment
+```
+
+### Confidential access intent
+
+```text
+requestId              EIP-712 digest used as the replay-safe identifier
+blobId                 encrypted blob being opened or computed
+requester              wallet that signed the intent
+deviceKeyCommitment    hash of the current device public key
+nonce                  per-blob, per-requester monotonic nonce
+deadline               expiry of the access intent
+purpose                View for private storage, Compute for confidential storage
+consumed               whether the FCC controller recorded a result
+```
+
 ## 6. Erasure coding
 
 The first network uses a four-shard, two-data-shard layout. Any two valid shards are sufficient to reconstruct the original data. This is the smallest layout that gives the live demo a meaningful failure event.
@@ -201,9 +249,11 @@ The current provider implementation uses the Clay Codes 0.0.3 Node WASM runtime.
 ```text
 register provider
         |
-client computes encoding and root commitment
+client encrypts first for private or confidential mode
         |
-user wallet registers the blob and commitment on Flare
+client computes encoding, policy, envelope, and root commitment
+        |
+wallet atomically pays and registers the blob on Flare
         |
 Prime RPC reads and verifies the registration
         |
@@ -217,6 +267,8 @@ record acknowledgements on Flare
         |
 finalize blob
         |
+release provider settlement claims
+        |
 provider failure detected
         |
 recover from surviving shards
@@ -229,32 +281,41 @@ No stage may advance only because the coordinator says it did. Each stage needs 
 ## 8.1 Registration-first write protocol
 
 ```text
-client selects file
+client selects file, storage mode, access policy, and payment asset
         |
-client computes Clay encoding and commitment
         |
-wallet calls createBlobNamed(...)
+client encrypts locally when private or confidential
+        |
+client prepares the FCC envelope and policy commitment
+        |
+client computes Clay encoding and commitment over plaintext or ciphertext
+        |
+wallet atomically pays and calls createBlobNamedPaid(...)
         |
 Flare records msg.sender as owner
         |
 client waits for the registration receipt
         |
-client sends original bytes to Prime RPC
+client sends the registered plaintext or ciphertext bytes to Prime RPC
         |
 RPC reads the registration and recomputes the commitment
         |
 RPC distributes shards and verifies provider acknowledgements
         |
-coordinator finalizes the registered blob
+coordinator finalizes the registered blob and submits provider settlement claims
 ```
 
 The public API requires `x-prime-blob-id` and checks the onchain registration before reading the request body. The request can include commitment, expiry, size, and encoding headers as cross-checks. The registry remains authoritative for those values. A blob that is already active, expired, revoked, or registered to another account cannot be uploaded through the public route.
+
+For a paid upload, the gateway also checks that payment is still escrowed and compares the storage mode, access policy, policy commitment, key-envelope commitment, and metadata commitment with the onchain record. A payment flag is not settlement proof. Settlement is read from registry payment state and provider claim receipts.
+
+For private and confidential uploads, the uploaded bytes are the ciphertext produced by the client. The RPC recomputes the Clay commitment over that ciphertext. Confidential access requires a separate wallet-signed intent and FCC result. A paid private upload does not prove that the file has been decrypted or that FCC has run.
 
 ## 8. Flare integration
 
 The first deployment target is Flare Coston2.
 
-The current Coston2 proof was produced by an earlier registry build. The registration-first source change adds `BlobOrigin` and explicit operator creation methods, so a fresh registry deployment is required before rolling this boundary to the public Coston2 node. No replacement deployment is performed automatically.
+The current paid and policy proof uses a fresh registry at `0x73f92b133e6259f170Bc42FA708F476CDE15AdD0`, deployed in block `33585089`. The earlier storage and recovery proof remains historical. The replacement registry was tested with the native paid flow, private ciphertext flow, wallet access intent, and a fresh provider failure and rebuild run.
 
 ```text
 chain ID: 114

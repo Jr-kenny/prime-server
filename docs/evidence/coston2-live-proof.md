@@ -1,8 +1,8 @@
-# Prime Server Coston2 live proof
+# Prime Server Coston2 core live proof
 
 Recorded on 2026-08-03 from the local Prime Server checkout.
 
-These results come from two runs against the fresh registry below. The first run proves provider placement, shard loss, recovery, and rebuild. The second run proves the public registration-first wallet flow through the SDK and developer API.
+These results come from two runs against the earlier registry below. The first run proves provider placement, shard loss, recovery, and rebuild. The second run proves the public registration-first wallet flow through the SDK and developer API. The current registry with native payment, policy, and access-intent fields is documented in [coston2-paid-live-proof.md](./coston2-paid-live-proof.md).
 
 The provider endpoints in these runs use loopback addresses on the Mac. They prove process isolation and the protocol lifecycle. They are not public storage endpoints.
 
@@ -18,7 +18,7 @@ The provider endpoints in these runs use loopback addresses on the Mac. They pro
 | Deployed runtime bytecode | `10,849` bytes |
 | Deployment receipt | success |
 
-The ignored local `.env` now points Prime RPC and the proof harness at this registry. The previous registry remains historical only.
+The deployment in this document is historical. The ignored local `.env` now points Prime RPC and the proof harness at the replacement registry documented in [coston2-paid-live-proof.md](./coston2-paid-live-proof.md).
 
 ## Four-provider recovery proof
 
@@ -108,3 +108,21 @@ The complete recovery record is `.prime-server/evidence/coston2/coston2-17857658
 The complete direct-wallet record is `.prime-server/evidence/coston2/coston2-registered-1785766127070-9946.json`.
 
 These files remain ignored by Git because they contain local provider paths and temporary runtime details.
+
+## Replacement registry regression proof
+
+The proven storage and recovery core was rerun against the replacement registry on 2026-08-03 after the payment and access schema changes.
+
+| Field | Value |
+| --- | --- |
+| Run ID | `coston2-1785771713115-23093` |
+| Registry | `0x73f92b133e6259f170Bc42FA708F476CDE15AdD0` |
+| Blob ID | `598e147e2df6b215409e2611be045345b3df623a9572f9d2785df076fa5f873e` |
+| Failed providers | `provider-2`, `provider-4` |
+| Missing shards | `1`, `3` |
+| Input SHA-256 | `70a5aa60279a696319d492e948cc9ba794da0e9174b81ad1d702554502f4801f` |
+| Recovered SHA-256 | `70a5aa60279a696319d492e948cc9ba794da0e9174b81ad1d702554502f4801f` |
+| Final SHA-256 | `70a5aa60279a696319d492e948cc9ba794da0e9174b81ad1d702554502f4801f` |
+| Final status | `rebuilt` |
+
+The replacement run recorded one `BlobCreated`, six shard assignments, six shard acknowledgements, one finalization, two recovery starts, and two rebuilt-shard events. Its machine-readable record is `.prime-server/evidence/coston2/coston2-1785771713115-23093.json`.
