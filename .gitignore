@@ -1,0 +1,29 @@
+node_modules/
+dist/
+build/
+.env
+.env.*
+!.env.example
+coverage/
+.turbo/
+.cache/
+.DS_Store
+
+# Foundry
+contracts/cache/
+contracts/out/
+contracts/broadcast/
+contracts/lib/
+
+# Local Prime Server data
+.prime-server/
+data/
+*.sqlite
+*.sqlite3
+*.db
+
+# Logs and runtime files
+*.log
+tmp/
+run/
+
