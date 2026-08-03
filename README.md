@@ -2,6 +2,8 @@
 
 Prime Server is a Flare-native, verifiable decentralized storage network with erasure-coded storage, wallet-owned blobs, and provider recovery.
 
+Public writes use a registration-first protocol. The SDK computes the commitment locally, the user wallet registers the blob directly on Flare, and Prime RPC accepts bytes only after it verifies that registration and recomputes the same commitment.
+
 The project is built around one visible proof:
 
 1. Upload a real file to multiple provider processes.
@@ -25,6 +27,8 @@ The first live proof is complete on Flare Coston2. A real 2 MiB blob was uploade
 - [docs/developer-api.md](./docs/developer-api.md) defines the wallet-owned developer API.
 - [docs/protocol-identity-notes.md](./docs/protocol-identity-notes.md) records the owner and named-blob protocol decisions.
 - [sdk/README.md](./sdk/README.md) shows how applications use Prime Server from JavaScript.
+
+The source contract now includes the registration-first boundary and explicit operator-owned creation methods. The existing Coston2 proof address predates that source change, so it must be redeployed before the public registered-upload route is enabled against Coston2.
 
 ## Repository layout
 

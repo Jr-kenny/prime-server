@@ -21,10 +21,12 @@ async function stopProvider(provider) {
 test("provider durably stores, signs, serves, and range-reads a shard", async () => {
   const first = await startProvider();
   const bytes = Buffer.from("Prime Server survives provider failure.\n", "utf8");
+  const ackContext = `prime-ack-v1|114|registry|blob-test|owner|name|0|commitment|${bytes.length}|provider-test`;
 
   try {
     const put = await fetch(`${first.baseUrl}/v1/shards/blob-test/0`, {
       method: "PUT",
+      headers: { "x-prime-ack-context": ackContext },
       body: bytes
     });
     assert.equal(put.status, 201);
@@ -32,6 +34,7 @@ test("provider durably stores, signs, serves, and range-reads a shard", async ()
     assert.equal(receipt.providerId, "provider-test");
     assert.equal(receipt.size, bytes.length);
     assert.match(receipt.commitment, /^[0-9a-f]{64}$/);
+    assert.equal(receipt.signedPayload, ackContext);
 
     const publicKey = createPublicKey({ key: Buffer.from(receipt.publicKey, "base64"), type: "spki", format: "der" });
     assert.equal(

@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -8,6 +9,7 @@ import { PrimeAuthManager } from "../src/auth.mjs";
 import { MemoryRegistry } from "../src/memory-registry.mjs";
 import { JsonOperationalStore } from "../src/operational-store.mjs";
 import { createPrimeRpcServer } from "../src/server.mjs";
+import { createErasureEngine } from "../../provider/src/erasure.mjs";
 import { startProviderProcesses, stopProviderProcesses } from "../../scripts/providers.mjs";
 
 async function listen(server) {
@@ -59,12 +61,50 @@ test("wallet-owned developer API supports put, list, head, get, and range reads"
     const input = Buffer.alloc(2 * 1024 * 1024);
     input[0] = 0x50;
     input[input.length - 1] = 0x53;
+    const rawPut = await fetch(`${baseUrl}/prime/v1/blobs/${account.address}/hello.txt`, {
+      method: "PUT",
+      headers: { ...authorization, "content-type": "text/plain" },
+      body: input
+    });
+    assert.equal(rawPut.status, 400);
+    const erasureEngine = await createErasureEngine();
+    const encoded = erasureEngine.encode(input);
+    const blobId = createHash("sha256").update("gateway-user-registration").digest("hex");
+    const expiresAt = Math.floor(Date.now() / 1000) + 3600;
+    await registry.createBlobNamed({
+      blobId,
+      blobName: "hello.txt",
+      owner: account.address,
+      commitment: encoded.clayChunksetRoot,
+      size: input.length,
+      chunkSize: erasureEngine.config.chunkSizeBytes,
+      dataShards: erasureEngine.config.k,
+      totalShards: erasureEngine.config.n,
+      expiresAt
+    });
+    const mismatchedCommitment = await fetch(`${baseUrl}/prime/v1/blobs/${account.address}/hello.txt`, {
+      method: "PUT",
+      headers: {
+        ...authorization,
+        "content-type": "text/plain",
+        "x-prime-blob-id": blobId,
+        "x-prime-commitment": `0x${"00".repeat(32)}`,
+        "x-prime-expires-at": String(expiresAt)
+      },
+      body: input
+    });
+    assert.equal(mismatchedCommitment.status, 400);
     const put = await fetch(`${baseUrl}/prime/v1/blobs/${account.address}/hello.txt`, {
       method: "PUT",
       headers: {
         ...authorization,
         "content-type": "text/plain",
-        "x-prime-expiration-seconds": "3600"
+        "x-prime-blob-id": blobId,
+        "x-prime-commitment": encoded.clayChunksetRoot,
+        "x-prime-chunk-size": String(erasureEngine.config.chunkSizeBytes),
+        "x-prime-data-shards": String(erasureEngine.config.k),
+        "x-prime-total-shards": String(erasureEngine.config.n),
+        "x-prime-expires-at": String(expiresAt)
       },
       body: input
     });
@@ -75,8 +115,10 @@ test("wallet-owned developer API supports put, list, head, get, and range reads"
     assert.equal(metadata.name, "hello.txt");
     assert.match(metadata.nameHash, /^[a-f0-9]{64}$/);
     assert.equal(metadata.status, "active");
+    assert.equal(metadata.origin, "user");
     assert.match(metadata.downloadUrl, /^https:\/\/api\.primeserver\.example\/prime\/v1/);
     assert.equal(registry.getBlob(metadata.blobId).blobName, "hello.txt");
+    assert.equal(registry.getBlob(metadata.blobId).owner, account.address);
 
     const listing = await (await fetch(`${baseUrl}/prime/v1/blobs/${account.address}`, { headers: authorization })).json();
     assert.deepEqual(listing.objects.map((object) => object.name), ["hello.txt"]);
@@ -97,7 +139,7 @@ test("wallet-owned developer API supports put, list, head, get, and range reads"
 
     const duplicate = await fetch(`${baseUrl}/prime/v1/blobs/${account.address}/hello.txt`, {
       method: "PUT",
-      headers: { ...authorization, "x-prime-expiration-seconds": "3600" },
+      headers: { ...authorization, "x-prime-blob-id": blobId },
       body: input
     });
     assert.equal(duplicate.status, 409);

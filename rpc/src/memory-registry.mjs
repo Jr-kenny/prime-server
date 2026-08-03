@@ -1,12 +1,16 @@
 import { createPublicKey, verify } from "node:crypto";
 import { keccak256, stringToHex } from "viem";
+import { acknowledgementContext } from "./ack-context.mjs";
 
 function fail(message) {
   throw new Error(message);
 }
 
 export class MemoryRegistry {
-  constructor() {
+  constructor({ coordinator = "operator", chainId = 31337, address = "memory-registry" } = {}) {
+    this.coordinator = coordinator;
+    this.chainId = chainId;
+    this.address = address;
     this.providers = new Map();
     this.blobs = new Map();
     this.blobIdByOwnerNameHash = new Map();
@@ -31,14 +35,11 @@ export class MemoryRegistry {
       expiresAt: Number(expiresAt),
       blobName: "",
       nameHash: "",
+      origin: "user",
       status: "pending",
       placement: new Map(),
       acknowledgements: new Map()
     });
-  }
-
-  async createBlobFor({ owner, ...blob }) {
-    return this.createBlob({ ...blob, owner });
   }
 
   async createBlobNamed({ blobId, blobName, owner, commitment, size, chunkSize, dataShards, totalShards, expiresAt }) {
@@ -56,8 +57,14 @@ export class MemoryRegistry {
     this.blobIdByOwnerNameHash.set(nameKey, blobId);
   }
 
-  async createBlobForNamed({ owner, ...blob }) {
-    return this.createBlobNamed({ ...blob, owner });
+  async createOperatorBlob({ ...blob }) {
+    await this.createBlob({ ...blob, owner: this.coordinator });
+    this.blobs.get(blob.blobId).origin = "operator";
+  }
+
+  async createOperatorBlobNamed({ blobId, blobName, ...blob }) {
+    await this.createBlobNamed({ blobId, blobName, ...blob, owner: this.coordinator });
+    this.blobs.get(blobId).origin = "operator";
   }
 
   async assignShard(blobId, shardIndex, providerId) {
@@ -70,7 +77,7 @@ export class MemoryRegistry {
     blob.placement.set(shardIndex, providerId);
   }
 
-  async acknowledgeShard({ blobId, shardIndex, providerId, commitment, size, signedPayload, signature }) {
+  async acknowledgeShard({ blobId, shardIndex, providerId, commitment, size, ackContext, signedPayload, signature }) {
     const blob = this.blobs.get(blobId);
     if (!blob) fail("blob does not exist");
     if (blob.status !== "pending" && blob.status !== "recovering") fail("blob is not writable");
@@ -89,7 +96,18 @@ export class MemoryRegistry {
       Buffer.from(signature, "base64")
     );
     if (!valid) fail("invalid provider acknowledgement signature");
-    const expectedPayload = `${providerId}:${blobId}:${shardIndex}:${commitment}:${size}`;
+    const expectedPayload = acknowledgementContext({
+      chainId: this.chainId,
+      registryAddress: this.address,
+      blobId,
+      owner: blob.owner,
+      nameHash: blob.nameHash,
+      providerId,
+      shardIndex,
+      commitment,
+      size
+    });
+    if (ackContext && ackContext !== expectedPayload) fail("acknowledgement context mismatch");
     if (signedPayload !== expectedPayload) fail("acknowledgement payload mismatch");
     blob.acknowledgements.set(`${providerId}:${shardIndex}`, { providerId, shardIndex, commitment, size });
   }
@@ -138,6 +156,7 @@ export class MemoryRegistry {
       dataShards: blob.dataShards,
       totalShards: blob.totalShards,
       expiresAt: blob.expiresAt,
+      origin: blob.origin,
       blobName: blob.blobName,
       nameHash: blob.nameHash,
       status: blob.status,

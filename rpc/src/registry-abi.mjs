@@ -63,10 +63,9 @@ export const primeServerRegistryAbi = [
   },
   {
     type: "function",
-    name: "createBlobFor",
+    name: "createOperatorBlob",
     stateMutability: "nonpayable",
     inputs: [
-      { name: "owner", type: "address" },
       { name: "blobId", type: "bytes32" },
       { name: "commitment", type: "bytes32" },
       { name: "size", type: "uint64" },
@@ -79,10 +78,9 @@ export const primeServerRegistryAbi = [
   },
   {
     type: "function",
-    name: "createBlobForNamed",
+    name: "createOperatorBlobNamed",
     stateMutability: "nonpayable",
     inputs: [
-      { name: "owner", type: "address" },
       { name: "blobId", type: "bytes32" },
       { name: "blobName", type: "string" },
       { name: "commitment", type: "bytes32" },
@@ -196,7 +194,8 @@ export const primeServerRegistryAbi = [
       { name: "acknowledgementCount", type: "uint256" },
       { name: "status", type: "uint8" },
       { name: "exists", type: "bool" },
-      { name: "expiresAt", type: "uint64" }
+      { name: "expiresAt", type: "uint64" },
+      { name: "origin", type: "uint8" }
     ]
   },
   {

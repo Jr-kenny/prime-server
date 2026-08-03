@@ -304,7 +304,10 @@ Dependencies: Slice 9.
 Output:
 
 - Wallet-signature sessions.
-- Wallet-owned expiring blobs on Flare, with an owner-scoped onchain name index.
+- Client-side erasure preparation and commitment calculation.
+- Direct wallet registration of expiring named blobs on Flare, with an owner-scoped onchain name index.
+- Registered-upload verification for owner, name, size, expiry, parameters, and commitment.
+- Explicit operator-owned creation methods with no arbitrary beneficiary owner.
 - Named object API with upload, list, metadata, full download, and range reads.
 - JavaScript SDK for external applications.
 - Stable API base path under `/prime/v1`.
@@ -312,11 +315,12 @@ Output:
 Acceptance:
 
 - A wallet signs in without exposing a private key to the gateway.
-- An upload is owned by that wallet on a local EVM registry, and the full name plus name hash are readable from chain state.
+- A wallet registers the blob directly on a local EVM registry, and the full name, name hash, origin, and owner are readable from chain state.
+- A registered upload is rejected when the request owner, name, size, expiry, parameters, or recomputed commitment differs from the registration.
 - An external client can put, list, head, download, and range-read a named object.
 - The API returns a clear capability document and does not claim S3 or payment support before those layers exist.
 
-Current output: the contract, local EVM adapter, gateway, SDK, protocol identity notes, and gateway integration test are implemented. Live Coston2 redeployment and a real branded DNS record remain before this slice can be marked complete.
+Current output: the contract, local EVM adapter, provider acknowledgement context, gateway, SDK, protocol identity notes, and gateway integration test are implemented. `forge test`, the RPC and provider suites, and the SDK suite pass. Live Coston2 redeployment remains before this slice can be marked complete against the public network. The earlier Coston2 proof address must not be reused because it predates the new registry getter and operator boundary.
 
 ## Handoff rule for future sessions
 

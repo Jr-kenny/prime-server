@@ -73,7 +73,7 @@ test("event indexer resumes from a block cursor and parses Prime Server events",
       });
     }
     const blobId = createHash("sha256").update("indexer-blob").digest("hex");
-    await registry.createBlobNamed({
+    await registry.createOperatorBlobNamed({
       blobId,
       blobName: "indexer/test.bin",
       commitment: createHash("sha256").update("indexer-root").digest("hex"),

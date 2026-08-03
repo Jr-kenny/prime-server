@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, createPublicKey, verify } from "node:crypto";
 import {
   createPublicClient,
   createWalletClient,
@@ -9,6 +9,7 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { primeServerRegistryAbi } from "./registry-abi.mjs";
+import { acknowledgementContext } from "./ack-context.mjs";
 
 function normalizePrivateKey(value) {
   if (!value) throw new Error("private key is required");
@@ -50,6 +51,7 @@ export function createFlareRegistry({
   const onchainProviderIds = new Map();
   const localProviderIdsByChainId = new Map();
   const transactionJournal = [];
+  const providerSigningKeys = new Map();
 
   function resolveProviderId(providerId) {
     const resolved = onchainProviderIds.get(String(providerId));
@@ -77,6 +79,7 @@ export function createFlareRegistry({
     async registerProvider({ providerId, endpoint, signingKey, publicKey }) {
       const provider = providerWallets.get(providerId);
       if (!provider) throw new Error(`missing wallet for ${providerId}`);
+      if (publicKey) providerSigningKeys.set(String(providerId), publicKey);
       const existingProviderId = await publicClient.readContract({
         address,
         abi: primeServerRegistryAbi,
@@ -116,14 +119,11 @@ export function createFlareRegistry({
         Number(dataShards),
         Number(totalShards)
       ];
-      if (Number(expiresAt) > 0) {
-        return write(deployerWallet, "createBlobWithExpiry", [...args, BigInt(expiresAt)]);
-      }
-      return write(deployerWallet, "createBlob", args);
+      return write(deployerWallet, "createOperatorBlob", [...args, BigInt(expiresAt)]);
     },
 
-    async createBlobNamed({ blobId, blobName, commitment, size, chunkSize, dataShards, totalShards, expiresAt }) {
-      return write(deployerWallet, "createBlobNamed", [
+    async createBlobNamed({ wallet = deployerWallet, blobId, blobName, commitment, size, chunkSize, dataShards, totalShards, expiresAt }) {
+      return write(wallet, "createBlobNamed", [
         `0x${blobId.replace(/^0x/, "")}`,
         blobName,
         `0x${commitment.replace(/^0x/, "")}`,
@@ -135,9 +135,8 @@ export function createFlareRegistry({
       ]);
     },
 
-    async createBlobFor({ owner, blobId, commitment, size, chunkSize, dataShards, totalShards, expiresAt }) {
-      return write(deployerWallet, "createBlobFor", [
-        owner,
+    async createOperatorBlob({ blobId, commitment, size, chunkSize, dataShards, totalShards, expiresAt }) {
+      return write(deployerWallet, "createOperatorBlob", [
         `0x${blobId.replace(/^0x/, "")}`,
         `0x${commitment.replace(/^0x/, "")}`,
         BigInt(size),
@@ -148,9 +147,8 @@ export function createFlareRegistry({
       ]);
     },
 
-    async createBlobForNamed({ owner, blobId, blobName, commitment, size, chunkSize, dataShards, totalShards, expiresAt }) {
-      return write(deployerWallet, "createBlobForNamed", [
-        owner,
+    async createOperatorBlobNamed({ blobId, blobName, commitment, size, chunkSize, dataShards, totalShards, expiresAt }) {
+      return write(deployerWallet, "createOperatorBlobNamed", [
         `0x${blobId.replace(/^0x/, "")}`,
         blobName,
         `0x${commitment.replace(/^0x/, "")}`,
@@ -170,9 +168,34 @@ export function createFlareRegistry({
       ]);
     },
 
-    async acknowledgeShard({ blobId, shardIndex, providerId, commitment, size }) {
+    async acknowledgeShard({ blobId, shardIndex, providerId, commitment, size, ackContext, signedPayload, signature }) {
       const provider = providerWallets.get(providerId);
       if (!provider) throw new Error(`missing wallet for ${providerId}`);
+      const providerPublicKey = providerSigningKeys.get(String(providerId));
+      if (providerPublicKey && ackContext && signedPayload && signature) {
+        const blob = await this.getBlob(blobId);
+        const expectedPayload = acknowledgementContext({
+          chainId: chain.id,
+          registryAddress: address,
+          blobId,
+          owner: blob.owner,
+          nameHash: blob.nameHash,
+          providerId,
+          shardIndex,
+          commitment,
+          size
+        });
+        if (ackContext !== expectedPayload || signedPayload !== expectedPayload) {
+          throw new Error("provider acknowledgement context mismatch");
+        }
+        const valid = verify(
+          null,
+          Buffer.from(signedPayload),
+          createPublicKey({ key: Buffer.from(providerPublicKey, "base64"), type: "spki", format: "der" }),
+          Buffer.from(signature, "base64")
+        );
+        if (!valid) throw new Error("invalid provider acknowledgement signature");
+      }
       return write(provider.wallet, "acknowledgeShard", [
         `0x${blobId.replace(/^0x/, "")}`,
         Number(shardIndex),
@@ -213,6 +236,7 @@ export function createFlareRegistry({
         functionName: "blobs",
         args: [`0x${blobId.replace(/^0x/, "")}`]
       });
+      if (!raw[8]) return null;
       const totalShards = Number(raw[5]);
       const placement = {};
       const acknowledgements = [];
@@ -273,6 +297,7 @@ export function createFlareRegistry({
         acknowledgementCount: Number(raw[6]),
         status: statusNames[Number(raw[7])] || "unknown",
         expiresAt: Number(raw[9] || 0),
+        origin: raw.length > 10 ? (Number(raw[10]) === 1 ? "operator" : "user") : "unknown",
         nameHash,
         blobName,
         placement,

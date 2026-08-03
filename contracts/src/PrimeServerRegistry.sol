@@ -13,6 +13,11 @@ contract PrimeServerRegistry {
         Revoked
     }
 
+    enum BlobOrigin {
+        User,
+        Operator
+    }
+
     struct Provider {
         address operator;
         string endpoint;
@@ -32,6 +37,7 @@ contract PrimeServerRegistry {
         BlobStatus status;
         bool exists;
         uint64 expiresAt;
+        BlobOrigin origin;
     }
 
     struct ShardAcknowledgement {
@@ -52,8 +58,8 @@ contract PrimeServerRegistry {
     mapping(bytes32 blobId => string blobName) public blobNames;
     mapping(address owner => mapping(bytes32 nameHash => bytes32 blobId)) public blobIdByOwnerNameHash;
     mapping(bytes32 blobId => mapping(uint8 shardIndex => uint256 providerId)) public placement;
-    mapping(bytes32 blobId => mapping(uint256 providerId => mapping(uint8 shardIndex => ShardAcknowledgement)))
-        public acknowledgements;
+    mapping(bytes32 blobId => mapping(uint256 providerId => mapping(uint8 shardIndex => ShardAcknowledgement))) public
+        acknowledgements;
 
     event ProviderRegistered(uint256 indexed providerId, address indexed operator, string endpoint, bytes32 signingKey);
     event ProviderStatusChanged(uint256 indexed providerId, bool active);
@@ -61,19 +67,12 @@ contract PrimeServerRegistry {
     event BlobNamed(bytes32 indexed blobId, address indexed owner, bytes32 indexed nameHash, string blobName);
     event ShardAssigned(bytes32 indexed blobId, uint8 indexed shardIndex, uint256 indexed providerId);
     event ShardAcknowledged(
-        bytes32 indexed blobId,
-        uint8 indexed shardIndex,
-        uint256 indexed providerId,
-        bytes32 commitment,
-        uint64 size
+        bytes32 indexed blobId, uint8 indexed shardIndex, uint256 indexed providerId, bytes32 commitment, uint64 size
     );
     event BlobFinalized(bytes32 indexed blobId);
     event RecoveryStarted(bytes32 indexed blobId, uint256 indexed providerId, uint8 indexed shardIndex);
     event ShardRebuilt(
-        bytes32 indexed blobId,
-        uint8 indexed shardIndex,
-        uint256 indexed providerId,
-        bytes32 commitment
+        bytes32 indexed blobId, uint8 indexed shardIndex, uint256 indexed providerId, bytes32 commitment
     );
 
     constructor() {
@@ -88,6 +87,11 @@ contract PrimeServerRegistry {
 
     modifier onlyCoordinator() {
         require(coordinators[msg.sender], "not coordinator");
+        _;
+    }
+
+    modifier onlyUser() {
+        require(!coordinators[msg.sender], "coordinator must use operator creation");
         _;
     }
 
@@ -141,8 +145,10 @@ contract PrimeServerRegistry {
         uint32 chunkSize,
         uint8 dataShards,
         uint8 totalShards
-    ) external {
-        _createBlob(msg.sender, blobId, "", commitment, size, chunkSize, dataShards, totalShards, 0, false);
+    ) external onlyUser {
+        _createBlob(
+            msg.sender, blobId, "", commitment, size, chunkSize, dataShards, totalShards, 0, false, BlobOrigin.User
+        );
     }
 
     function createBlobWithExpiry(
@@ -153,8 +159,20 @@ contract PrimeServerRegistry {
         uint8 dataShards,
         uint8 totalShards,
         uint64 expiresAt
-    ) external {
-        _createBlob(msg.sender, blobId, "", commitment, size, chunkSize, dataShards, totalShards, expiresAt, false);
+    ) external onlyUser {
+        _createBlob(
+            msg.sender,
+            blobId,
+            "",
+            commitment,
+            size,
+            chunkSize,
+            dataShards,
+            totalShards,
+            expiresAt,
+            false,
+            BlobOrigin.User
+        );
     }
 
     function createBlobNamed(
@@ -166,12 +184,23 @@ contract PrimeServerRegistry {
         uint8 dataShards,
         uint8 totalShards,
         uint64 expiresAt
-    ) external {
-        _createBlob(msg.sender, blobId, blobName, commitment, size, chunkSize, dataShards, totalShards, expiresAt, true);
+    ) external onlyUser {
+        _createBlob(
+            msg.sender,
+            blobId,
+            blobName,
+            commitment,
+            size,
+            chunkSize,
+            dataShards,
+            totalShards,
+            expiresAt,
+            true,
+            BlobOrigin.User
+        );
     }
 
-    function createBlobFor(
-        address owner,
+    function createOperatorBlob(
         bytes32 blobId,
         bytes32 commitment,
         uint64 size,
@@ -180,11 +209,22 @@ contract PrimeServerRegistry {
         uint8 totalShards,
         uint64 expiresAt
     ) external onlyCoordinator {
-        _createBlob(owner, blobId, "", commitment, size, chunkSize, dataShards, totalShards, expiresAt, false);
+        _createBlob(
+            msg.sender,
+            blobId,
+            "",
+            commitment,
+            size,
+            chunkSize,
+            dataShards,
+            totalShards,
+            expiresAt,
+            false,
+            BlobOrigin.Operator
+        );
     }
 
-    function createBlobForNamed(
-        address owner,
+    function createOperatorBlobNamed(
         bytes32 blobId,
         string calldata blobName,
         bytes32 commitment,
@@ -194,7 +234,19 @@ contract PrimeServerRegistry {
         uint8 totalShards,
         uint64 expiresAt
     ) external onlyCoordinator {
-        _createBlob(owner, blobId, blobName, commitment, size, chunkSize, dataShards, totalShards, expiresAt, true);
+        _createBlob(
+            msg.sender,
+            blobId,
+            blobName,
+            commitment,
+            size,
+            chunkSize,
+            dataShards,
+            totalShards,
+            expiresAt,
+            true,
+            BlobOrigin.Operator
+        );
     }
 
     function _createBlob(
@@ -207,7 +259,8 @@ contract PrimeServerRegistry {
         uint8 dataShards,
         uint8 totalShards,
         uint64 expiresAt,
-        bool named
+        bool named,
+        BlobOrigin origin
     ) internal {
         require(owner != address(0), "owner required");
         require(!blobs[blobId].exists, "blob already exists");
@@ -242,7 +295,8 @@ contract PrimeServerRegistry {
             acknowledgementCount: 0,
             status: BlobStatus.Pending,
             exists: true,
-            expiresAt: expiresAt
+            expiresAt: expiresAt,
+            origin: origin
         });
 
         emit BlobCreated(blobId, owner, commitment, size);
@@ -254,7 +308,10 @@ contract PrimeServerRegistry {
         }
     }
 
-    function assignShard(bytes32 blobId, uint8 shardIndex, uint256 providerId) external onlyBlobOwnerOrCoordinator(blobId) {
+    function assignShard(bytes32 blobId, uint8 shardIndex, uint256 providerId)
+        external
+        onlyBlobOwnerOrCoordinator(blobId)
+    {
         Blob storage blob = blobs[blobId];
         require(blob.status == BlobStatus.Pending, "blob not pending");
         require(shardIndex < blob.totalShards, "invalid shard index");
@@ -265,12 +322,7 @@ contract PrimeServerRegistry {
         emit ShardAssigned(blobId, shardIndex, providerId);
     }
 
-    function acknowledgeShard(
-        bytes32 blobId,
-        uint8 shardIndex,
-        bytes32 shardCommitment,
-        uint64 shardSize
-    ) external {
+    function acknowledgeShard(bytes32 blobId, uint8 shardIndex, bytes32 shardCommitment, uint64 shardSize) external {
         Blob storage blob = blobs[blobId];
         require(blob.exists, "blob does not exist");
         require(blob.status == BlobStatus.Pending || blob.status == BlobStatus.Recovering, "blob not writable");
@@ -289,10 +341,7 @@ contract PrimeServerRegistry {
         }
 
         acknowledgements[blobId][providerId][shardIndex] = ShardAcknowledgement({
-            commitment: shardCommitment,
-            size: shardSize,
-            acknowledgedAt: uint64(block.timestamp),
-            exists: true
+            commitment: shardCommitment, size: shardSize, acknowledgedAt: uint64(block.timestamp), exists: true
         });
 
         emit ShardAcknowledged(blobId, shardIndex, providerId, shardCommitment, shardSize);
@@ -316,7 +365,10 @@ contract PrimeServerRegistry {
         emit RecoveryStarted(blobId, providerId, shardIndex);
     }
 
-    function reassignShard(bytes32 blobId, uint8 shardIndex, uint256 providerId) external onlyBlobOwnerOrCoordinator(blobId) {
+    function reassignShard(bytes32 blobId, uint8 shardIndex, uint256 providerId)
+        external
+        onlyBlobOwnerOrCoordinator(blobId)
+    {
         Blob storage blob = blobs[blobId];
         require(blob.status == BlobStatus.Recovering, "recovery not active");
         require(shardIndex < blob.totalShards, "invalid shard index");
@@ -325,12 +377,10 @@ contract PrimeServerRegistry {
         emit ShardAssigned(blobId, shardIndex, providerId);
     }
 
-    function recordRebuiltShard(
-        bytes32 blobId,
-        uint8 shardIndex,
-        uint256 providerId,
-        bytes32 shardCommitment
-    ) external onlyBlobOwnerOrCoordinator(blobId) {
+    function recordRebuiltShard(bytes32 blobId, uint8 shardIndex, uint256 providerId, bytes32 shardCommitment)
+        external
+        onlyBlobOwnerOrCoordinator(blobId)
+    {
         Blob storage blob = blobs[blobId];
         require(blob.status == BlobStatus.Recovering, "recovery not active");
         require(shardIndex < blob.totalShards, "invalid shard index");

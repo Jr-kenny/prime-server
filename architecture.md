@@ -111,9 +111,11 @@ GET  /v1/providers
 GET  /health
 ```
 
-The developer upload path authenticates a wallet, requires a storage expiration, creates a wallet-owned named blob on Flare through the coordinator, erasure-codes the input, assigns shards to providers, uploads the shards, verifies acknowledgements, and submits the required chain transactions. The registry stores the owner-scoped name hash and full blob name, so the gateway’s operational index is recoverable from chain state while provider placement and recovery remain under the coordinator role.
+The developer upload path has a registration-first boundary. The client erasure-codes the input and computes the Clay commitment locally. The user wallet submits `createBlobNamed` directly to Flare and waits for confirmation. The client then sends the original bytes and the registration identifier to Prime RPC. RPC reads the registration from Flare, recomputes the encoding and commitment, checks the owner, name, size, expiry, and supported parameters, then distributes the shards and records acknowledgements. The gateway session authenticates API access and rate limits, but it never creates a user-owned blob or determines its owner.
 
-The download path reads enough surviving shards to reconstruct the requested bytes. A range request must avoid reading the whole file when the shard layout allows a narrower read. The developer API adds a JavaScript SDK, while multipart uploads and an S3-compatible gateway remain planned compatibility layers.
+The contract also exposes explicit operator creation methods for coordinator-owned internal objects. Those methods set the coordinator as owner and record `Operator` origin. They cannot assign a user wallet as the owner.
+
+The target download path reads enough surviving shards to reconstruct the requested bytes. The current first implementation reconstructs the complete object and then applies HTTP range slicing, so efficient shard-range retrieval remains a separate slice. The developer API adds a JavaScript SDK, while multipart uploads and an S3-compatible gateway remain planned compatibility layers.
 
 ### 4.4 Coordinator and indexer
 
@@ -148,6 +150,8 @@ dataShards         initial value: 2
 totalShards        initial value: 4
 placementGroup     provider identifiers
 status             pending, active, recovering, rebuilt, revoked
+origin             User or Operator
+expiresAt          optional UNIX expiry recorded on Flare
 ```
 
 ### Provider
@@ -164,6 +168,10 @@ active             registration and health state
 
 ```text
 blobId             blob being acknowledged
+chainId            network where the registration exists
+registryAddress    registry contract that owns the lifecycle
+owner              registered blob owner
+nameHash           owner-scoped name commitment
 providerId         provider storing the shard
 shardIndex         erasure-coded shard index
 commitment         shard commitment
@@ -193,7 +201,11 @@ The current provider implementation uses the Clay Codes 0.0.3 Node WASM runtime.
 ```text
 register provider
         |
-create blob and root commitment
+client computes encoding and root commitment
+        |
+user wallet registers the blob and commitment on Flare
+        |
+Prime RPC reads and verifies the registration
         |
 assign shard placement
         |
@@ -214,9 +226,35 @@ record rebuild and new acknowledgement
 
 No stage may advance only because the coordinator says it did. Each stage needs a local receipt, a provider record, a transaction or event where applicable, and a content hash where bytes are involved.
 
+## 8.1 Registration-first write protocol
+
+```text
+client selects file
+        |
+client computes Clay encoding and commitment
+        |
+wallet calls createBlobNamed(...)
+        |
+Flare records msg.sender as owner
+        |
+client waits for the registration receipt
+        |
+client sends original bytes to Prime RPC
+        |
+RPC reads the registration and recomputes the commitment
+        |
+RPC distributes shards and verifies provider acknowledgements
+        |
+coordinator finalizes the registered blob
+```
+
+The public API requires `x-prime-blob-id` and checks the onchain registration before reading the request body. The request can include commitment, expiry, size, and encoding headers as cross-checks. The registry remains authoritative for those values. A blob that is already active, expired, revoked, or registered to another account cannot be uploaded through the public route.
+
 ## 8. Flare integration
 
 The first deployment target is Flare Coston2.
+
+The current Coston2 proof was produced by an earlier registry build. The registration-first source change adds `BlobOrigin` and explicit operator creation methods, so a fresh registry deployment is required before rolling this boundary to the public Coston2 node. No replacement deployment is performed automatically.
 
 ```text
 chain ID: 114

@@ -1,0 +1,22 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      '@shelby-protocol/clay-codes':
+        specifier: 0.0.3
+        version: 0.0.3
+
+packages:
+
+  '@shelby-protocol/clay-codes@0.0.3':
+    resolution: {integrity: sha512-Lqrn7/B+mbLAhbeU6G83q/zqL2MFYFJO2GlHJZUv1PydL4keg5+t/2gUT8K/sgjdW01drmYbI6IBMNKFyUF1iQ==}
+
+snapshots:
+
+  '@shelby-protocol/clay-codes@0.0.3': {}

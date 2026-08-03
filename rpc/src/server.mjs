@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { createErasureEngine, FOUR_PROVIDER_CONFIG } from "../../provider/src/erasure.mjs";
 import { getAddress, isAddress, keccak256, stringToHex } from "viem";
 import { bearerToken } from "./auth.mjs";
+import { acknowledgementContext as buildAcknowledgementContext } from "./ack-context.mjs";
 
 export const MAX_BODY_BYTES = FOUR_PROVIDER_CONFIG.k * FOUR_PROVIDER_CONFIG.chunkSizeBytes;
 export const DEVELOPER_API_PREFIX = "/prime/v1";
@@ -97,20 +98,57 @@ function requireAccountOwner(session, account) {
   if (session.address.toLowerCase() !== account.toLowerCase()) throw new GatewayError(403, "wallet does not own this account");
 }
 
-function parseExpiration(request) {
-  const expiresAtHeader = request.headers["x-prime-expires-at"];
-  const expirationSecondsHeader = request.headers["x-prime-expiration-seconds"];
-  const now = Math.floor(Date.now() / 1000);
-  let expiresAt;
-  if (expiresAtHeader !== undefined) {
-    expiresAt = Number(expiresAtHeader);
-  } else if (expirationSecondsHeader !== undefined) {
-    expiresAt = now + Number(expirationSecondsHeader);
-  } else {
-    throw new GatewayError(400, "x-prime-expires-at or x-prime-expiration-seconds is required");
+function parseHeaderInteger(request, name, { required = false } = {}) {
+  const value = request.headers[name];
+  if (value === undefined) {
+    if (required) throw new GatewayError(400, `${name} is required`);
+    return null;
   }
-  if (!Number.isSafeInteger(expiresAt) || expiresAt <= now) throw new GatewayError(400, "blob expiration must be a future UNIX timestamp");
-  return expiresAt;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new GatewayError(400, `${name} must be a non-negative integer`);
+  return parsed;
+}
+
+function normalizeHex(value) {
+  return String(value || "").replace(/^0x/, "").toLowerCase();
+}
+
+function requireBlobIdHeader(request) {
+  const blobId = normalizeHex(request.headers["x-prime-blob-id"]);
+  if (!/^[a-f0-9]{64}$/.test(blobId)) throw new GatewayError(400, "x-prime-blob-id must be a 32-byte hex identifier");
+  return blobId;
+}
+
+function assertRegistrationMatchesRequest({ registration, blobId, account, name, request }) {
+  if (!registration || registration.blobId?.toLowerCase() !== blobId) throw new GatewayError(404, "registered blob not found");
+  if (registration.origin !== "user") throw new GatewayError(403, "public uploads require a user-registered blob");
+  if (String(registration.owner).toLowerCase() !== account.toLowerCase()) throw new GatewayError(403, "registered blob owner does not match the account");
+  if (registration.blobName !== name) throw new GatewayError(409, "registered blob name does not match the request");
+  if (registration.nameHash && normalizeHex(registration.nameHash) !== normalizeHex(keccak256(stringToHex(name)))) {
+    throw new GatewayError(409, "registered blob name hash does not match the request");
+  }
+  if (registration.status !== "pending") throw new GatewayError(409, "registered blob is no longer pending");
+  if (registration.expiresAt > 0 && registration.expiresAt <= Math.floor(Date.now() / 1000)) throw new GatewayError(410, "registered blob has expired");
+
+  const contentLength = parseHeaderInteger(request, "content-length", { required: true });
+  if (contentLength !== registration.size) throw new GatewayError(400, "content-length does not match the registered blob size");
+
+  const claimedCommitment = request.headers["x-prime-commitment"];
+  if (claimedCommitment !== undefined && normalizeHex(claimedCommitment) !== normalizeHex(registration.commitment)) {
+    throw new GatewayError(400, "x-prime-commitment does not match the registered commitment");
+  }
+  const claimedExpiry = parseHeaderInteger(request, "x-prime-expires-at");
+  if (claimedExpiry !== null && claimedExpiry !== registration.expiresAt) throw new GatewayError(400, "x-prime-expires-at does not match the registered expiry");
+  if (request.headers["x-prime-expiration-seconds"] !== undefined) throw new GatewayError(400, "expiration must be registered on Flare before upload");
+  const claims = [
+    ["x-prime-chunk-size", registration.chunkSize],
+    ["x-prime-data-shards", registration.dataShards],
+    ["x-prime-total-shards", registration.totalShards]
+  ];
+  for (const [header, expected] of claims) {
+    const claimed = parseHeaderInteger(request, header);
+    if (claimed !== null && claimed !== expected) throw new GatewayError(400, `${header} does not match the registered encoding`);
+  }
 }
 
 function objectResponse(object, requestUrl, publicBaseUrl = "") {
@@ -126,6 +164,7 @@ function objectResponse(object, requestUrl, publicBaseUrl = "") {
     createdAt: object.createdAt,
     expiresAt: object.expiresAt,
     status: object.status,
+    origin: object.origin,
     downloadUrl: `${apiBase}/blobs/${object.account}/${encodeURIComponent(object.name)}`
   };
 }
@@ -147,7 +186,7 @@ function applyCorsHeaders(response, origin) {
   response.setHeader("access-control-allow-methods", "GET,PUT,HEAD,POST,OPTIONS");
   response.setHeader(
     "access-control-allow-headers",
-    "authorization,content-type,range,x-prime-expires-at,x-prime-expiration-seconds"
+    "authorization,content-type,range,x-prime-blob-id,x-prime-commitment,x-prime-chunk-size,x-prime-data-shards,x-prime-total-shards,x-prime-expires-at"
   );
   response.setHeader("access-control-expose-headers", "content-range,etag,x-prime-blob-id,x-prime-name-hash,x-prime-expires-at,x-prime-recovered,x-prime-missing-shards");
   response.setHeader("access-control-max-age", "600");
@@ -181,6 +220,9 @@ async function handleDeveloperRequest({
         blobList: true,
         rangeReads: true,
         chainOwnedNames: true,
+        registrationRequired: true,
+        ownershipSource: "flare-registry",
+        clientPreparation: true,
         multipartUploads: false,
         s3Gateway: false,
         payments: false
@@ -239,16 +281,19 @@ async function handleDeveloperRequest({
 
   if (request.method === "PUT") {
     if (object) throw new GatewayError(409, "blob name already exists");
-    const expiresAt = parseExpiration(request);
+    const blobId = requireBlobIdHeader(request);
+    const registration = await registry.getBlob(blobId);
+    assertRegistrationMatchesRequest({ registration, blobId, account, name, request });
     const input = await readRequestBody(request);
-    const result = await uploadBlob({
+    const result = await uploadRegisteredBlob({
       input,
+      blobId,
+      blobName: name,
+      account,
+      registration,
       providers,
       registry,
       erasureEngine,
-      owner: account,
-      blobName: name,
-      expiresAt
     });
     const stored = await objectStore.putObject({
       account,
@@ -259,8 +304,9 @@ async function handleDeveloperRequest({
       commitment: result.commitment,
       nameHash: result.nameHash,
       createdAt: new Date().toISOString(),
-      expiresAt,
-      status: result.status
+      expiresAt: result.registry.expiresAt,
+      status: result.status,
+      origin: result.registry.origin
     });
     const responseObject = objectResponse(stored, requestUrl, publicBaseUrl);
     response.writeHead(201, {
@@ -311,13 +357,29 @@ async function providerHealth(provider) {
   return response.json();
 }
 
-async function uploadShard(provider, blobId, shardIndex, bytes, commitment) {
+function acknowledgementContext({ registry, blob, blobId, providerId, shardIndex, commitment, size }) {
+  return buildAcknowledgementContext({
+    chainId: registry.chainId ?? registry.chain?.id ?? "unknown",
+    registryAddress: registry.address ?? "memory-registry",
+    blobId,
+    owner: blob.owner,
+    nameHash: blob.nameHash,
+    providerId,
+    shardIndex,
+    commitment,
+    size
+  });
+}
+
+async function uploadShard(provider, blobId, shardIndex, bytes, commitment, ackContext = "") {
+  const headers = {
+    "content-type": "application/octet-stream",
+    "x-prime-shard-commitment": commitment
+  };
+  if (ackContext) headers["x-prime-ack-context"] = ackContext;
   const response = await fetch(`${provider.url}/v1/shards/${blobId}/${shardIndex}`, {
     method: "PUT",
-    headers: {
-      "content-type": "application/octet-stream",
-      "x-prime-shard-commitment": commitment
-    },
+    headers,
     body: bytes
   });
   const receipt = await response.json();
@@ -409,16 +471,26 @@ export async function rebuildBlob({ blobId, providers, registry, erasureEngine }
     if (!provider) throw new Error(`provider ${providerId} is required for shard rebuild`);
     const bytes = Buffer.from(result.recoveredShards[shardIndex]);
     const commitment = createHash("sha256").update(bytes).digest("hex");
+    const ackContext = acknowledgementContext({
+      registry,
+      blob: result.blob,
+      blobId,
+      providerId: provider.providerId,
+      shardIndex,
+      commitment,
+      size: bytes.length
+    });
 
     await registry.startRecovery(blobId, shardIndex);
     await registry.reassignShard(blobId, shardIndex, provider.providerId);
-    const receipt = await uploadShard(provider, blobId, shardIndex, bytes, commitment);
+    const receipt = await uploadShard(provider, blobId, shardIndex, bytes, commitment, ackContext);
     await registry.acknowledgeShard({
       blobId,
       shardIndex,
       providerId: provider.providerId,
       commitment: receipt.commitment,
       size: receipt.size,
+      ackContext,
       signedPayload: receipt.signedPayload,
       signature: receipt.signature
     });
@@ -431,42 +503,31 @@ export async function rebuildBlob({ blobId, providers, registry, erasureEngine }
   return { blobId, rebuiltShards, status: final.blob.status, contentHash: final.contentHash };
 }
 
-export async function uploadBlob({ input, providers, registry, erasureEngine, owner = "local-owner", blobName = "", expiresAt = 0 }) {
+async function placeEncodedBlob({ input, encoded, blobId, providers, registry }) {
   if (providers.length !== FOUR_PROVIDER_CONFIG.n) throw new Error("the first upload path requires four providers");
-  const encoded = erasureEngine.encode(input);
-  const blobId = createHash("sha256").update(input).update(randomBytes(16)).digest("hex");
-
-  const blobArguments = {
-    blobId,
-    owner,
-    commitment: encoded.clayChunksetRoot,
-    size: input.length,
-    chunkSize: erasureEngine.config.chunkSizeBytes,
-    dataShards: erasureEngine.config.k,
-    totalShards: erasureEngine.config.n,
-    expiresAt
-  };
-  const nameHash = blobName ? keccak256(stringToHex(blobName)).slice(2) : "";
-  if (/^0x[a-fA-F0-9]{40}$/.test(owner) && blobName && typeof registry.createBlobForNamed === "function") {
-    await registry.createBlobForNamed({ ...blobArguments, blobName });
-  } else if (/^0x[a-fA-F0-9]{40}$/.test(owner) && blobName) {
-    throw new Error("registry named blob support is required for developer uploads");
-  } else if (/^0x[a-fA-F0-9]{40}$/.test(owner) && typeof registry.createBlobFor === "function") {
-    await registry.createBlobFor(blobArguments);
-  } else {
-    await registry.createBlob(blobArguments);
-  }
+  const blob = await registry.getBlob(blobId);
+  if (!blob) throw new Error("blob registration not found");
 
   const receipts = [];
   for (let shardIndex = 0; shardIndex < encoded.chunks.length; shardIndex += 1) {
     const provider = providers[shardIndex];
     await registry.assignShard(blobId, shardIndex, provider.providerId);
+    const ackContext = acknowledgementContext({
+      registry,
+      blob,
+      blobId,
+      providerId: provider.providerId,
+      shardIndex,
+      commitment: encoded.chunkCommitments[shardIndex],
+      size: encoded.chunks[shardIndex].length
+    });
     const receipt = await uploadShard(
       provider,
       blobId,
       shardIndex,
       encoded.chunks[shardIndex],
-      encoded.chunkCommitments[shardIndex]
+      encoded.chunkCommitments[shardIndex],
+      ackContext
     );
     await registry.acknowledgeShard({
       blobId,
@@ -474,6 +535,7 @@ export async function uploadBlob({ input, providers, registry, erasureEngine, ow
       providerId: provider.providerId,
       commitment: receipt.commitment,
       size: receipt.size,
+      ackContext,
       signedPayload: receipt.signedPayload,
       signature: receipt.signature
     });
@@ -490,7 +552,7 @@ export async function uploadBlob({ input, providers, registry, erasureEngine, ow
   return {
     blobId,
     commitment: encoded.clayChunksetRoot,
-    nameHash,
+    nameHash: registryState?.nameHash || blob.nameHash || "",
     chunkCommitments: encoded.chunkCommitments,
     clayChunkRoots: encoded.clayChunkRoots,
     size: input.length,
@@ -498,6 +560,49 @@ export async function uploadBlob({ input, providers, registry, erasureEngine, ow
     providers: receipts,
     registry: registryState
   };
+}
+
+export async function uploadRegisteredBlob({ input, blobId, blobName, account, registration, providers, registry, erasureEngine }) {
+  if (!registration) throw new Error("blob registration is required");
+  if (normalizeHex(registration.blobId) !== normalizeHex(blobId)) throw new Error("registered blob ID does not match the request");
+  if (registration.origin !== "user") throw new Error("public uploads require a user-registered blob");
+  if (String(registration.owner).toLowerCase() !== String(account).toLowerCase()) throw new Error("registered blob owner does not match the account");
+  if (registration.blobName !== blobName) throw new Error("registered blob name does not match the request");
+  if (registration.nameHash && normalizeHex(registration.nameHash) !== normalizeHex(keccak256(stringToHex(blobName)))) throw new Error("registered blob name hash does not match the request");
+  if (registration.status !== "pending") throw new Error("registered blob is no longer pending");
+  if (registration.expiresAt > 0 && registration.expiresAt <= Math.floor(Date.now() / 1000)) throw new Error("registered blob has expired");
+  if (registration.size !== input.length) throw new Error("input size does not match the registered blob");
+  const encoded = erasureEngine.encode(input);
+  if (normalizeHex(encoded.clayChunksetRoot) !== normalizeHex(registration.commitment)) {
+    throw new Error("locally recomputed commitment does not match the registered commitment");
+  }
+  if (encoded.originalSize !== registration.size) throw new Error("encoded size does not match the registered blob");
+  if (erasureEngine.config.chunkSizeBytes !== registration.chunkSize || erasureEngine.config.k !== registration.dataShards || erasureEngine.config.n !== registration.totalShards) {
+    throw new Error("registered erasure parameters are not supported");
+  }
+  return placeEncodedBlob({ input, encoded, blobId, providers, registry });
+}
+
+export async function uploadBlob({ input, providers, registry, erasureEngine, blobName = "", expiresAt = 0 }) {
+  const encoded = erasureEngine.encode(input);
+  const blobId = createHash("sha256").update(input).update(randomBytes(16)).digest("hex");
+  const blobArguments = {
+    blobId,
+    commitment: encoded.clayChunksetRoot,
+    size: input.length,
+    chunkSize: erasureEngine.config.chunkSizeBytes,
+    dataShards: erasureEngine.config.k,
+    totalShards: erasureEngine.config.n,
+    expiresAt
+  };
+  if (blobName) {
+    if (typeof registry.createOperatorBlobNamed !== "function") throw new Error("operator named blob support is required");
+    await registry.createOperatorBlobNamed({ ...blobArguments, blobName });
+  } else {
+    if (typeof registry.createOperatorBlob !== "function") throw new Error("operator blob support is required");
+    await registry.createOperatorBlob(blobArguments);
+  }
+  return placeEncodedBlob({ input, encoded, blobId, providers, registry });
 }
 
 export async function createPrimeRpcServer({

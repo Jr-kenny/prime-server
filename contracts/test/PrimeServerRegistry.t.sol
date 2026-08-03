@@ -4,11 +4,10 @@ pragma solidity ^0.8.24;
 import {PrimeServerRegistry} from "../src/PrimeServerRegistry.sol";
 
 contract PrimeServerActor {
-    function register(
-        PrimeServerRegistry registry,
-        string calldata endpoint,
-        bytes32 signingKey
-    ) external returns (uint256) {
+    function register(PrimeServerRegistry registry, string calldata endpoint, bytes32 signingKey)
+        external
+        returns (uint256)
+    {
         return registry.registerProvider(endpoint, signingKey);
     }
 
@@ -38,6 +37,22 @@ contract PrimeServerActor {
         uint64 expiresAt
     ) external {
         registry.createBlobNamed(blobId, blobName, commitment, size, chunkSize, dataShards, totalShards, expiresAt);
+    }
+
+    function createOperatorNamed(
+        PrimeServerRegistry registry,
+        bytes32 blobId,
+        string calldata blobName,
+        bytes32 commitment,
+        uint64 size,
+        uint32 chunkSize,
+        uint8 dataShards,
+        uint8 totalShards,
+        uint64 expiresAt
+    ) external {
+        registry.createOperatorBlobNamed(
+            blobId, blobName, commitment, size, chunkSize, dataShards, totalShards, expiresAt
+        );
     }
 }
 
@@ -70,7 +85,7 @@ contract PrimeServerRegistryTest {
         (PrimeServerActor p1, PrimeServerActor p2, PrimeServerActor p3, PrimeServerActor p4) = _registerFour();
         bytes32 blobId = keccak256("blob-1");
 
-        registry.createBlob(blobId, keccak256("root-1"), 2048, 1024, 2, 4);
+        registry.createOperatorBlob(blobId, keccak256("root-1"), 2048, 1024, 2, 4, 0);
         registry.assignShard(blobId, 0, registry.providerIdByOperator(address(p1)));
         registry.assignShard(blobId, 1, registry.providerIdByOperator(address(p2)));
         registry.assignShard(blobId, 2, registry.providerIdByOperator(address(p3)));
@@ -83,7 +98,8 @@ contract PrimeServerRegistryTest {
 
         registry.finalizeBlob(blobId);
 
-        (,,,,,, uint256 acknowledgementCount, PrimeServerRegistry.BlobStatus status, bool exists, uint64 expiresAt) = registry.blobs(blobId);
+        (,,,,,, uint256 acknowledgementCount, PrimeServerRegistry.BlobStatus status, bool exists, uint64 expiresAt,) =
+            registry.blobs(blobId);
         require(acknowledgementCount == 4, "acknowledgement count mismatch");
         require(status == PrimeServerRegistry.BlobStatus.Active, "blob should be active");
         require(exists, "blob should exist");
@@ -94,7 +110,7 @@ contract PrimeServerRegistryTest {
         (PrimeServerActor p1, PrimeServerActor p2, PrimeServerActor p3, PrimeServerActor p4) = _registerFour();
         bytes32 blobId = keccak256("blob-2");
 
-        registry.createBlob(blobId, keccak256("root-2"), 2048, 1024, 2, 4);
+        registry.createOperatorBlob(blobId, keccak256("root-2"), 2048, 1024, 2, 4, 0);
         registry.assignShard(blobId, 0, registry.providerIdByOperator(address(p1)));
         registry.assignShard(blobId, 1, registry.providerIdByOperator(address(p2)));
         registry.assignShard(blobId, 2, registry.providerIdByOperator(address(p3)));
@@ -104,9 +120,7 @@ contract PrimeServerRegistryTest {
         p2.acknowledge(registry, blobId, 1, bytes32(uint256(201)), 1024);
         p3.acknowledge(registry, blobId, 2, bytes32(uint256(202)), 1024);
 
-        (bool success,) = address(registry).call(
-            abi.encodeWithSelector(registry.finalizeBlob.selector, blobId)
-        );
+        (bool success,) = address(registry).call(abi.encodeWithSelector(registry.finalizeBlob.selector, blobId));
         require(!success, "finalization should require every shard acknowledgement");
     }
 
@@ -114,7 +128,7 @@ contract PrimeServerRegistryTest {
         (PrimeServerActor p1, PrimeServerActor p2, PrimeServerActor p3, PrimeServerActor p4) = _registerFour();
         bytes32 blobId = keccak256("blob-3");
 
-        registry.createBlob(blobId, keccak256("root-3"), 2048, 1024, 2, 4);
+        registry.createOperatorBlob(blobId, keccak256("root-3"), 2048, 1024, 2, 4, 0);
         registry.assignShard(blobId, 0, registry.providerIdByOperator(address(p1)));
         registry.assignShard(blobId, 1, registry.providerIdByOperator(address(p2)));
         registry.assignShard(blobId, 2, registry.providerIdByOperator(address(p3)));
@@ -132,28 +146,47 @@ contract PrimeServerRegistryTest {
         registry.recordRebuiltShard(blobId, 1, replacementId, bytes32(uint256(401)));
 
         require(registry.placement(blobId, 1) == replacementId, "placement was not reassigned");
-        (,,,,,, , PrimeServerRegistry.BlobStatus status,,) = registry.blobs(blobId);
+        (,,,,,,, PrimeServerRegistry.BlobStatus status,,,) = registry.blobs(blobId);
         require(status == PrimeServerRegistry.BlobStatus.Rebuilt, "blob should be rebuilt");
     }
 
-    function testCoordinatorCanCreateUserOwnedExpiringBlob() public {
-        PrimeServerActor user = new PrimeServerActor();
+    function testCoordinatorCanCreateOnlyOperatorOwnedExpiringBlob() public {
+        PrimeServerActor coordinator = new PrimeServerActor();
+        registry.setCoordinator(address(coordinator), true);
         uint64 expiresAt = uint64(block.timestamp + 86_400);
-        bytes32 blobId = keccak256("user-owned-blob");
+        bytes32 blobId = keccak256("operator-owned-blob");
         string memory blobName = "app/config.json";
 
-        registry.createBlobForNamed(address(user), blobId, blobName, keccak256("user-root"), 1024, 1024, 2, 4, expiresAt);
+        (bool userCreationSucceeded,) = address(registry)
+            .call(
+                abi.encodeWithSelector(
+                    registry.createBlobNamed.selector,
+                    keccak256("coordinator-user-method"),
+                    blobName,
+                    keccak256("operator-root"),
+                    1024,
+                    1024,
+                    2,
+                    4,
+                    expiresAt
+                )
+            );
+        require(!userCreationSucceeded, "coordinators must use operator creation");
 
-        (address owner,,,,,,, , bool exists, uint64 storedExpiry) = registry.blobs(blobId);
-        require(owner == address(user), "blob owner should be the user wallet");
-        require(exists, "user blob should exist");
+        coordinator.createOperatorNamed(
+            registry, blobId, blobName, keccak256("operator-root"), 1024, 1024, 2, 4, expiresAt
+        );
+
+        (address owner,,,,,,,, bool exists, uint64 storedExpiry, PrimeServerRegistry.BlobOrigin origin) =
+            registry.blobs(blobId);
+        require(owner == address(coordinator), "operator blob owner should be the coordinator wallet");
+        require(exists, "operator blob should exist");
         require(storedExpiry == expiresAt, "blob expiry mismatch");
+        require(origin == PrimeServerRegistry.BlobOrigin.Operator, "operator origin should be recorded");
         bytes32 nameHash = keccak256(bytes(blobName));
         require(registry.blobNameHashes(blobId) == nameHash, "blob name hash mismatch");
         require(keccak256(bytes(registry.blobNames(blobId))) == nameHash, "blob name mismatch");
-        require(registry.blobIdByOwnerNameHash(address(user), nameHash) == blobId, "owner name index mismatch");
-
-        _assertDuplicateNameRejected(user, blobName, expiresAt);
+        require(registry.blobIdByOwnerNameHash(address(coordinator), nameHash) == blobId, "owner name index mismatch");
     }
 
     function testWalletCanCreateNamedBlob() public {
@@ -164,35 +197,11 @@ contract PrimeServerRegistryTest {
 
         user.createNamed(registry, blobId, blobName, keccak256("direct-user-root"), 1024, 1024, 2, 4, expiresAt);
 
-        (address owner,,,,,,, , bool exists, uint64 storedExpiry) = registry.blobs(blobId);
+        (address owner,,,,,,,, bool exists, uint64 storedExpiry,) = registry.blobs(blobId);
         require(owner == address(user), "direct blob owner should be the signing wallet");
         require(exists, "direct blob should exist");
         require(storedExpiry == expiresAt, "direct blob expiry mismatch");
         require(keccak256(bytes(registry.blobNames(blobId))) == keccak256(bytes(blobName)), "direct blob name mismatch");
-    }
-
-    function _assertDuplicateNameRejected(
-        PrimeServerActor user,
-        string memory blobName,
-        uint64 expiresAt
-    ) internal {
-        bool reverted;
-        try registry.createBlobForNamed(
-            address(user),
-            keccak256("duplicate-name"),
-            blobName,
-            keccak256("duplicate-root"),
-            1024,
-            1024,
-            2,
-            4,
-            expiresAt
-        ) {
-            reverted = false;
-        } catch {
-            reverted = true;
-        }
-        require(reverted, "owner blob names should be unique");
     }
 
     function _registerFour()

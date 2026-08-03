@@ -13,3 +13,5 @@ forge create \
 Record the returned contract address, transaction hash, deployment block, chain ID, and compiler version in the evidence log. Never place the private key in Git or chat.
 
 The canonical Coston2 deployment for the current proof is recorded in [docs/evidence/coston2-live-proof.md](../docs/evidence/coston2-live-proof.md).
+
+The source contract now includes `BlobOrigin`, `createOperatorBlob`, and `createOperatorBlobNamed`, and the blob getter has an additional `origin` field. Deploy a replacement registry before using the registration-first public API. Do not point the new RPC at the earlier proof address because its ABI and ownership boundary are different.

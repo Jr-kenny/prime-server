@@ -49,7 +49,8 @@ function parseRange(rangeHeader, size) {
   return { start, endInclusive: Math.min(endInclusive, size - 1) };
 }
 
-function acknowledgementPayload({ providerId, blobId, shardIndex, commitment, size }) {
+function acknowledgementPayload({ context, providerId, blobId, shardIndex, commitment, size }) {
+  if (context) return context;
   return `${providerId}:${blobId}:${shardIndex}:${commitment}:${size}`;
 }
 
@@ -89,7 +90,12 @@ export async function createProviderServer({ providerId, dataDir, host = "127.0.
           bytes,
           commitment: typeof expectedCommitment === "string" ? expectedCommitment : undefined
         });
-        const payload = acknowledgementPayload({ providerId, ...shardPath, ...metadata });
+        const payload = acknowledgementPayload({
+          context: req.headers["x-prime-ack-context"],
+          providerId,
+          ...shardPath,
+          ...metadata
+        });
         const signature = identity.signPayload(payload);
         json(res, 201, {
           providerId,

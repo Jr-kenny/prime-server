@@ -112,12 +112,15 @@ test("Flare registry adapter writes the provider and blob lifecycle to a local E
     assert.equal(onchain.commitment, commitment);
 
     const user = privateKeyToAccount(generatePrivateKey());
+    const userWallet = createWalletClient({ account: user, chain, transport: http(rpcUrl) });
+    const fundingHash = await deployer.sendTransaction({ to: user.address, value: parseEther("1") });
+    await publicClient.waitForTransactionReceipt({ hash: fundingHash });
     const userBlobId = createHash("sha256").update("user-owned-local-blob").digest("hex");
     const userCommitment = createHash("sha256").update("user-owned-local-root").digest("hex");
     const userBlobName = "app/config.json";
     const expiresAt = Math.floor(Date.now() / 1000) + 3_600;
-    await registry.createBlobForNamed({
-      owner: user.address,
+    await registry.createBlobNamed({
+      wallet: userWallet,
       blobId: userBlobId,
       blobName: userBlobName,
       commitment: userCommitment,

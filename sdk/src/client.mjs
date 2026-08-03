@@ -1,3 +1,6 @@
+import { blobBytes, prepareBlob as prepareBlobInput } from "./prepare.mjs";
+import { primeServerRegistryAbi } from "./registry-abi.mjs";
+
 function encodePath(value) {
   return encodeURIComponent(String(value));
 }
@@ -37,11 +40,24 @@ export class PrimeServerError extends Error {
 }
 
 export class PrimeServerClient {
-  constructor({ baseUrl, wallet, token = null, fetchImpl = globalThis.fetch } = {}) {
+  constructor({
+    baseUrl,
+    wallet,
+    walletClient,
+    publicClient,
+    registryAddress,
+    registryAbi = primeServerRegistryAbi,
+    token = null,
+    fetchImpl = globalThis.fetch
+  } = {}) {
     if (!baseUrl) throw new Error("Prime Server baseUrl is required");
     if (typeof fetchImpl !== "function") throw new Error("fetch is required");
     this.baseUrl = String(baseUrl).replace(/\/$/, "");
     this.wallet = wallet;
+    this.walletClient = walletClient;
+    this.publicClient = publicClient;
+    this.registryAddress = registryAddress;
+    this.registryAbi = registryAbi;
     this.token = token;
     this.fetch = fetchImpl;
   }
@@ -78,18 +94,63 @@ export class PrimeServerClient {
     return (await this.request("/account", { auth: true })).json();
   }
 
-  async put(name, body, { expiresAt, expirationSeconds, contentType = "application/octet-stream" } = {}) {
-    const headers = { "content-type": contentType };
-    if (expiresAt !== undefined) headers["x-prime-expires-at"] = String(expiresAt);
-    if (expirationSeconds !== undefined) headers["x-prime-expiration-seconds"] = String(expirationSeconds);
-    const account = walletAddress(this.wallet);
-    const response = await this.request(`/blobs/${encodePath(account)}/${encodePath(name)}`, {
+  async prepareBlob(input, options = {}) {
+    return prepareBlobInput(input, options);
+  }
+
+  async registerBlob(prepared) {
+    if (!this.registryAddress || !this.walletClient) throw new Error("registryAddress and walletClient are required for direct blob registration");
+    if (!prepared?.blobId || !prepared.name || !prepared.commitment) throw new Error("prepared blob metadata is incomplete");
+    const account = this.walletClient.account || this.wallet?.account || this.wallet?.address;
+    if (!account) throw new Error("wallet account is required for direct blob registration");
+    const hash = await this.walletClient.writeContract({
+      address: this.registryAddress,
+      abi: this.registryAbi,
+      functionName: "createBlobNamed",
+      account,
+      args: [
+        prepared.blobId,
+        prepared.name,
+        prepared.commitment,
+        BigInt(prepared.size),
+        Number(prepared.chunkSize),
+        Number(prepared.dataShards),
+        Number(prepared.totalShards),
+        BigInt(prepared.expiresAt)
+      ]
+    });
+    const receipt = this.publicClient
+      ? await this.publicClient.waitForTransactionReceipt({ hash })
+      : null;
+    return { hash, receipt };
+  }
+
+  async uploadRegisteredBlob(prepared, body, { contentType = "application/octet-stream" } = {}) {
+    if (!prepared?.blobId || !prepared.name || !prepared.commitment) throw new Error("prepared blob metadata is incomplete");
+    const input = await blobBytes(body);
+    if (input.length !== prepared.size) throw new Error("upload body does not match the prepared blob size");
+    const account = walletAddress(this.wallet || this.walletClient);
+    const headers = { "content-type": contentType, "content-length": String(input.length) };
+    headers["x-prime-blob-id"] = prepared.blobId;
+    headers["x-prime-commitment"] = prepared.commitment;
+    headers["x-prime-chunk-size"] = String(prepared.chunkSize);
+    headers["x-prime-data-shards"] = String(prepared.dataShards);
+    headers["x-prime-total-shards"] = String(prepared.totalShards);
+    headers["x-prime-expires-at"] = String(prepared.expiresAt);
+    const response = await this.request(`/blobs/${encodePath(account)}/${encodePath(prepared.name)}`, {
       method: "PUT",
       headers,
-      body,
+      body: input,
       auth: true
     });
     return response.json();
+  }
+
+  async put(name, body, { expiresAt, expirationSeconds, contentType = "application/octet-stream" } = {}) {
+    const input = await blobBytes(body);
+    const prepared = await this.prepareBlob(input, { name, expiresAt, expirationSeconds });
+    await this.registerBlob(prepared);
+    return this.uploadRegisteredBlob(prepared, input, { contentType });
   }
 
   async list({ prefix = "", limit = 100, cursor = "" } = {}) {

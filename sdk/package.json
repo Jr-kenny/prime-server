@@ -3,10 +3,16 @@
   "version": "0.1.0",
   "description": "Developer client for Prime Server Flare blob storage",
   "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
   "exports": {
     ".": "./src/client.mjs"
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "@shelby-protocol/clay-codes": "0.0.3"
   }
 }
