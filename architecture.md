@@ -320,7 +320,7 @@ For private and confidential uploads, the uploaded bytes are the ciphertext prod
 
 The first deployment target is Flare Coston2.
 
-The current paid and policy proof uses a fresh registry at `0x73f92b133e6259f170Bc42FA708F476CDE15AdD0`, deployed in block `33585089`. The earlier storage and recovery proof remains historical. The replacement registry was tested with the native paid flow, private ciphertext flow, wallet access intent, and a fresh provider failure and rebuild run.
+The current frozen registry deployment is `0x5E43cCe14cf17c96aF6d7ADF47592f5118Ab05E1`, deployed in block `33590506` after the recovery settlement reassignment fix. The earlier paid, storage, and recovery proofs remain historical and must be rerun against this address before being presented as proof for the frozen build. Deployment evidence is recorded in `docs/evidence/coston2-settlement-reassignment-fix-deployment.md`.
 
 ```text
 chain ID: 114

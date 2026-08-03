@@ -140,6 +140,7 @@ contract PrimeServerRegistry {
     uint256 private constant QUOTE_DAY_SECONDS = 86_400;
     uint16 private constant PROVIDER_RESERVE_BPS = 1_000;
     uint64 private constant MAX_ACCESS_LIFETIME = 1 days;
+    uint256 private constant GLOBAL_SETTLEMENT_PROVIDER_ID = 0;
 
     mapping(uint256 providerId => Provider provider) public providers;
     mapping(address operator => uint256 providerId) public providerIdByOperator;
@@ -152,6 +153,9 @@ contract PrimeServerRegistry {
         acknowledgements;
     mapping(bytes32 blobId => BlobPolicy policy) public blobPolicies;
     mapping(bytes32 blobId => BlobPayment payment) public blobPayments;
+    // Provider ID zero is reserved as the global per-shard claim marker. The
+    // marker survives provider reassignment while the active placement still
+    // determines which operator receives each payout.
     mapping(bytes32 blobId => mapping(uint256 providerId => mapping(uint8 shardIndex => bool))) public
         providerSettlementClaimed;
     mapping(bytes32 blobId => mapping(uint256 providerId => mapping(uint8 shardIndex => bool))) public
@@ -359,9 +363,8 @@ contract PrimeServerRegistry {
     function _isConfidentialAccessUsable(ConfidentialAccessRequest memory request) internal view returns (bool) {
         Blob memory blob = blobs[request.blobId];
         BlobPolicy memory policy = blobPolicies[request.blobId];
-        return request.exists && !request.consumed && request.deadline >= block.timestamp
-            && blob.exists && blob.status != BlobStatus.Revoked
-            && (blob.expiresAt == 0 || blob.expiresAt > block.timestamp)
+        return request.exists && !request.consumed && request.deadline >= block.timestamp && blob.exists
+            && blob.status != BlobStatus.Revoked && (blob.expiresAt == 0 || blob.expiresAt > block.timestamp)
             && _isAccessAuthorized(request.blobId, request.requester, policy.accessPolicy);
     }
 
@@ -670,7 +673,9 @@ contract PrimeServerRegistry {
             uint256 protocolFee,
             uint256 providerRewardPerShard,
             bytes32 quoteCommitment
-        ) = quoteNativePayment(registration.size, registration.totalShards, registration.storageMode, registration.expiresAt);
+        ) = quoteNativePayment(
+            registration.size, registration.totalShards, registration.storageMode, registration.expiresAt
+        );
         require(msg.value >= total, "incorrect native payment");
 
         _createUserBlob(registration);
@@ -827,12 +832,15 @@ contract PrimeServerRegistry {
             require(shardIndex < blob.totalShards, "invalid shard index");
             require(placement[blobId][shardIndex] == providerId, "provider not assigned");
             require(acknowledgements[blobId][providerId][shardIndex].exists, "shard not acknowledged");
-            if (!providerSettlementClaimed[blobId][providerId][shardIndex]) {
-                providerSettlementClaimed[blobId][providerId][shardIndex] = true;
+            if (!providerSettlementClaimed[blobId][GLOBAL_SETTLEMENT_PROVIDER_ID][shardIndex]) {
+                providerSettlementClaimed[blobId][GLOBAL_SETTLEMENT_PROVIDER_ID][shardIndex] = true;
                 amount += payment.providerRewardPerShard;
             }
-            if (block.timestamp >= blob.expiresAt && !providerReserveClaimed[blobId][providerId][shardIndex]) {
-                providerReserveClaimed[blobId][providerId][shardIndex] = true;
+            if (
+                block.timestamp >= blob.expiresAt
+                    && !providerReserveClaimed[blobId][GLOBAL_SETTLEMENT_PROVIDER_ID][shardIndex]
+            ) {
+                providerReserveClaimed[blobId][GLOBAL_SETTLEMENT_PROVIDER_ID][shardIndex] = true;
                 reserveAmount += reservePerShard;
             }
         }

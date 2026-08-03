@@ -32,7 +32,7 @@ The new paid, privacy, and FCC layers are locally verified against the contract 
 - [docs/protocol-identity-notes.md](./docs/protocol-identity-notes.md) records the owner and named-blob protocol decisions.
 - [sdk/README.md](./sdk/README.md) shows how applications use Prime Server from JavaScript.
 
-The source contract now includes the registration-first boundary and explicit operator-owned creation methods. The existing Coston2 proof address predates that source change, so it must be redeployed before the public registered-upload route is enabled against Coston2.
+The current corrected Coston2 registry deployment is recorded in [docs/evidence/coston2-settlement-reassignment-fix-deployment.md](./docs/evidence/coston2-settlement-reassignment-fix-deployment.md). The full provider, paid-storage, failure, recovery, and settlement proof still needs to be rerun against that address before it is presented as live proof for the frozen build.
 
 ## Repository layout
 

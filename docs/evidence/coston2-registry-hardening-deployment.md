@@ -17,4 +17,4 @@ Deployment:
 
 Read-only verification confirmed chain ID `114`, a successful deployment receipt, non-empty runtime bytecode at the registry address, the expected deployer as `admin()`, and the configured native rate of `1_000_000_000_000` wei per MiB per shard.
 
-This address is the current Coston2 registry target for the next live paid-storage, private-ciphertext, provider-failure, and recovery proof. The earlier Coston2 addresses remain historical evidence for their respective builds.
+This was the first post-hardening deployment before the recovery settlement reassignment fix. It remains historical evidence. The current frozen Coston2 target is recorded in [coston2-settlement-reassignment-fix-deployment.md](./coston2-settlement-reassignment-fix-deployment.md).

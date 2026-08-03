@@ -250,6 +250,71 @@ contract PrimeServerRegistryTest {
         require(registry.withdrawableProtocolFees() == protocolFee, "protocol fee should be withdrawable");
     }
 
+    function testRecoveryReassignmentPaysImmediateOnceAndReplacementReserve() public {
+        PrimeServerActor original = new PrimeServerActor();
+        original.register(registry, "http://127.0.0.1:7101", bytes32(uint256(1)));
+        PrimeServerActor replacement = new PrimeServerActor();
+        PrimeServerActor user = new PrimeServerActor();
+        bytes32 blobId = keccak256("reassigned-paid-shard");
+        uint64 expiresAt = uint64(block.timestamp + 1 days);
+        bytes32 policyCommitment = keccak256("reassignment-policy");
+
+        (uint256 total, uint256 providerPool,, uint256 providerRewardPerShard,) =
+            registry.quoteNativePayment(1024, 1, PrimeServerRegistry.StorageMode.Public, expiresAt);
+        uint256 providerReservePerShard = providerPool - providerRewardPerShard;
+        vm.deal(address(user), total);
+        user.createNamedPaid{value: total}(
+            registry,
+            PrimeServerRegistry.PaidBlobRegistration({
+                blobId: blobId,
+                blobName: "paid/reassigned.bin",
+                commitment: keccak256("reassigned-root"),
+                size: 1024,
+                chunkSize: 1024,
+                dataShards: 1,
+                totalShards: 1,
+                expiresAt: expiresAt,
+                storageMode: PrimeServerRegistry.StorageMode.Public,
+                accessPolicy: PrimeServerRegistry.AccessPolicy.OwnerOnly,
+                policyCommitment: policyCommitment,
+                keyEnvelopeCommitment: bytes32(0),
+                metadataCommitment: bytes32(0)
+            })
+        );
+
+        uint256 originalId = registry.providerIdByOperator(address(original));
+        registry.assignShard(blobId, 0, originalId);
+        original.acknowledge(registry, blobId, 0, bytes32(uint256(501)), 1024);
+        registry.finalizeBlob(blobId);
+
+        uint8[] memory shard = new uint8[](1);
+        shard[0] = 0;
+        uint256 originalBalanceBefore = address(original).balance;
+        original.claimSettlement(registry, blobId, shard);
+        require(
+            address(original).balance - originalBalanceBefore == providerRewardPerShard,
+            "original provider should receive the immediate reward once"
+        );
+        require(registry.providerSettlementClaimed(blobId, 0, 0), "global immediate marker should be set");
+
+        registry.startRecovery(blobId, 0);
+        uint256 replacementId = replacement.register(registry, "http://127.0.0.1:7201", bytes32(uint256(2)));
+        registry.reassignShard(blobId, 0, replacementId);
+        replacement.acknowledge(registry, blobId, 0, bytes32(uint256(601)), 1024);
+        registry.recordRebuiltShard(blobId, 0, replacementId, bytes32(uint256(601)));
+
+        vm.warp(expiresAt + 1);
+        uint256 replacementBalanceBefore = address(replacement).balance;
+        replacement.claimSettlement(registry, blobId, shard);
+        require(
+            address(replacement).balance - replacementBalanceBefore == providerReservePerShard,
+            "replacement provider should receive the reserve only"
+        );
+        require(registry.providerReserveClaimed(blobId, 0, 0), "global reserve marker should be set");
+
+        _assertSettled(registry, blobId, providerPool);
+    }
+
     function testNativeQuoteIncludesStorageDuration() public view {
         uint64 oneDay = uint64(block.timestamp + 1 days);
         uint64 sevenDays = uint64(block.timestamp + 7 days);
