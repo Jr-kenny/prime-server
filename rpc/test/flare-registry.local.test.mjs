@@ -85,6 +85,12 @@ test("Flare registry adapter writes the provider and blob lifecycle to a local E
       }));
     }
     assert.deepEqual(registrations.map((item) => item.providerId), ["1", "2", "3", "4"]);
+    const repeatedRegistration = await registry.registerProvider({
+      providerId: "provider-1",
+      endpoint: "http://127.0.0.1:7101",
+      signingKey: createHash("sha256").update("provider-1").digest("hex")
+    });
+    assert.equal(repeatedRegistration.alreadyRegistered, true);
 
     const blobId = createHash("sha256").update("local-blob").digest("hex");
     const commitment = createHash("sha256").update("local-root").digest("hex");

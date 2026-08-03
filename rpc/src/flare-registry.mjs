@@ -49,6 +49,7 @@ export function createFlareRegistry({
   );
   const onchainProviderIds = new Map();
   const localProviderIdsByChainId = new Map();
+  const transactionJournal = [];
 
   function resolveProviderId(providerId) {
     const resolved = onchainProviderIds.get(String(providerId));
@@ -58,6 +59,12 @@ export function createFlareRegistry({
   async function write(wallet, functionName, args) {
     const hash = await wallet.writeContract({ address, abi: primeServerRegistryAbi, functionName, args });
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    transactionJournal.push({
+      functionName,
+      hash,
+      blockNumber: receipt.blockNumber?.toString(),
+      status: receipt.status
+    });
     return { hash, receipt };
   }
 
@@ -70,6 +77,23 @@ export function createFlareRegistry({
     async registerProvider({ providerId, endpoint, signingKey, publicKey }) {
       const provider = providerWallets.get(providerId);
       if (!provider) throw new Error(`missing wallet for ${providerId}`);
+      const existingProviderId = await publicClient.readContract({
+        address,
+        abi: primeServerRegistryAbi,
+        functionName: "providerIdByOperator",
+        args: [provider.account.address]
+      });
+      if (existingProviderId !== 0n) {
+        onchainProviderIds.set(String(providerId), existingProviderId);
+        localProviderIdsByChainId.set(existingProviderId.toString(), String(providerId));
+        return {
+          hash: null,
+          receipt: null,
+          providerId: existingProviderId.toString(),
+          operator: provider.account.address,
+          alreadyRegistered: true
+        };
+      }
       const resolvedSigningKey = signingKey || createHash("sha256").update(Buffer.from(publicKey, "base64")).digest("hex");
       const result = await write(provider.wallet, "registerProvider", [endpoint, `0x${resolvedSigningKey.replace(/^0x/, "")}`]);
       const onchainProviderId = await publicClient.readContract({
@@ -196,6 +220,14 @@ export function createFlareRegistry({
         functionName: "placement",
         args: [`0x${blobId.replace(/^0x/, "")}`, Number(shardIndex)]
       });
+    },
+
+    providerOperators() {
+      return Object.fromEntries([...providerWallets.entries()].map(([providerId, provider]) => [providerId, provider.account.address]));
+    },
+
+    transactionJournal() {
+      return transactionJournal.map((entry) => ({ ...entry }));
     }
   };
 }

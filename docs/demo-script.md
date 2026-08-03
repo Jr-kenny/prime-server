@@ -4,6 +4,10 @@
 
 Show that Prime Server keeps data available through provider failure and can prove the recovery sequence with Flare state.
 
+## Automated run
+
+With the ignored `.env` configured, run `node scripts/coston2-demo.mjs` from the repository root. The command starts the four providers, performs the upload and failure sequence, writes the Coston2 transactions, and saves the machine-readable evidence under `.prime-server/evidence/coston2/`.
+
 ## Before the demo
 
 - Four provider processes are running with separate data directories.
@@ -51,4 +55,3 @@ final provider status
 ## Spoken explanation
 
 Prime Server stores data across independent providers instead of trusting one server. The chain records what should exist and who accepted each shard. When two providers disappear, the remaining providers still contain enough information to reconstruct the original file. Prime Server then rebuilds the lost shards and records the recovery on Flare.
-

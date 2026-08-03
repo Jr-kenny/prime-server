@@ -173,7 +173,7 @@ Evidence: RPC integration test uploaded a real 2 MiB blob, stopped providers 2 a
 
 ## Slice 7: Coston2 deployment
 
-Status: `in progress`
+Status: `complete`
 
 Dependencies: Slice 1 and Slice 5.
 
@@ -190,9 +190,7 @@ Acceptance:
 - A provider registration and blob creation transaction are independently readable.
 - The local evidence record contains chain ID, contract address, block numbers, and transaction hashes.
 
-Current output: `rpc/src/flare-registry.mjs` writes the registry lifecycle through viem. Local EVM tests deploy the real Solidity contract, register four funded providers, upload through Prime RPC, recover after two process failures, rebuild both shards, and observe the `rebuilt` state onchain.
-
-Remaining: deploy the same contract to Coston2 with user-provided test wallets and record the live deployment evidence.
+Current output: the registry is deployed to Coston2 at `0x0cF2205c21BdF773Bb104aA03f553F122416B7ac`. The deployment succeeded in block `33577496`, the transaction hash is recorded in `docs/evidence/coston2-live-proof.md`, and the live bytecode matches the Solidity `0.8.24` build at 7,716 bytes. Four funded provider operators registered successfully and a real blob lifecycle was independently read from the chain.
 
 ## Slice 8: event indexer and recovery coordinator
 
@@ -214,13 +212,13 @@ Acceptance:
 - A failed provider creates a recoverable job.
 - A recovery job can be retried safely.
 
-Current output: `rpc/src/event-indexer.mjs` polls and parses registry events with a block cursor. `POST /v1/blobs/:blobId/recover` reconstructs missing shards, restarts the storage path, records rebuilt state, and verifies the final read.
+Current output: `rpc/src/event-indexer.mjs` polls and parses registry events with a block cursor, using 30-block windows for the Coston2 log limit. `POST /v1/blobs/:blobId/recover` reconstructs missing shards, restarts the storage path, records rebuilt state, and verifies the final read.
 
 Remaining: persist the cursor and recovery queue in an operational store and add retry evidence across coordinator restarts.
 
 ## Slice 9: end-to-end failure proof
 
-Status: `pending`
+Status: `complete`
 
 Dependencies: Slice 4, Slice 6, Slice 7, and Slice 8.
 
@@ -240,6 +238,8 @@ real upload
 -> shard rebuild
 -> matching final hash
 ```
+
+Current output: `scripts/coston2-demo.mjs` ran the complete live proof on Coston2. A 2 MiB blob reached `active` after four provider acknowledgements. Provider 2 and provider 4 were stopped, shards 1 and 3 were removed from their storage paths, the original bytes were reconstructed from the two surviving shards, both missing shards were rebuilt, and the final state reached `rebuilt`. The input, recovered, and final SHA-256 hash were identical. The run evidence is saved under `.prime-server/evidence/coston2/` and summarized in `docs/evidence/coston2-live-proof.md`.
 
 ## Slice 10: operator view
 

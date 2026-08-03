@@ -2,31 +2,35 @@ import { parseEventLogs } from "viem";
 import { primeServerRegistryAbi } from "./registry-abi.mjs";
 
 export class PrimeServerEventIndexer {
-  constructor({ publicClient, address, fromBlock = 0n } = {}) {
+  constructor({ publicClient, address, fromBlock = 0n, maxBlockRange = 30n } = {}) {
     if (!publicClient) throw new Error("publicClient is required");
     if (!address) throw new Error("registry address is required");
+    if (BigInt(maxBlockRange) < 1n) throw new Error("maxBlockRange must be positive");
     this.publicClient = publicClient;
     this.address = address;
     this.nextBlock = BigInt(fromBlock);
+    this.maxBlockRange = BigInt(maxBlockRange);
     this.events = [];
   }
 
   async poll(toBlock) {
     const latest = toBlock === undefined ? await this.publicClient.getBlockNumber() : BigInt(toBlock);
     if (latest < this.nextBlock) return [];
-    const logs = await this.publicClient.getLogs({
-      address: this.address,
-      fromBlock: this.nextBlock,
-      toBlock: latest
-    });
-    const parsed = parseEventLogs({ abi: primeServerRegistryAbi, logs, strict: false });
-    const records = parsed.map((event) => ({
-      eventName: event.eventName,
-      args: event.args,
-      blockNumber: event.blockNumber,
-      transactionHash: event.transactionHash,
-      logIndex: event.logIndex
-    }));
+    const records = [];
+    for (let fromBlock = this.nextBlock; fromBlock <= latest; fromBlock += this.maxBlockRange) {
+      const toBlock = fromBlock + this.maxBlockRange - 1n < latest
+        ? fromBlock + this.maxBlockRange - 1n
+        : latest;
+      const logs = await this.publicClient.getLogs({ address: this.address, fromBlock, toBlock });
+      const parsed = parseEventLogs({ abi: primeServerRegistryAbi, logs, strict: false });
+      records.push(...parsed.map((event) => ({
+        eventName: event.eventName,
+        args: event.args,
+        blockNumber: event.blockNumber,
+        transactionHash: event.transactionHash,
+        logIndex: event.logIndex
+      })));
+    }
     this.events.push(...records);
     this.nextBlock = latest + 1n;
     return records;
@@ -45,4 +49,3 @@ export class PrimeServerEventIndexer {
     };
   }
 }
-

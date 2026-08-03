@@ -267,6 +267,7 @@ Verified before implementation in this repository:
 Repository status:
 
 - Scaffold created: 2026-08-03.
-- Prime Server contract not yet deployed.
+- PrimeServerRegistry deployed to Coston2 at `0x0cF2205c21BdF773Bb104aA03f553F122416B7ac` in block `33577496`.
+- A live 2 MiB upload, two-provider failure, reconstruction, shard rebuild, and final hash proof passed on Coston2.
 - No public endpoint exists yet.
-- No storage or payment claim is valid until a test run records evidence.
+- The local proof does not make a production storage or payment claim. Its exact evidence is recorded in `docs/evidence/coston2-live-proof.md`.
