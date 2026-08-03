@@ -25,6 +25,11 @@ contract PrimeServerInstructionSender {
     address public immutable resultSubmitter;
     uint256 private _extensionId;
 
+    /// @notice The FCC instruction that produced a result for each access request.
+    /// @dev The result verifier uses this binding to prevent a valid result for one
+    ///      request from being replayed against another request.
+    mapping(bytes32 instructionId => bytes32 requestId) public requestIdByInstructionId;
+
     event ExtensionIdSet(uint256 indexed extensionId);
     event FccInstructionRequested(
         bytes32 indexed requestId,
@@ -102,6 +107,7 @@ contract PrimeServerInstructionSender {
             keyEnvelope
         );
         instructionId = _send(OP_COMMAND_KEY_REWRAP, message);
+        requestIdByInstructionId[instructionId] = requestId;
         emit FccInstructionRequested(requestId, request.blobId, instructionId, OP_COMMAND_KEY_REWRAP, request.requester);
     }
 
@@ -138,13 +144,15 @@ contract PrimeServerInstructionSender {
             inputCommitment
         );
         instructionId = _send(OP_COMMAND_CONFIDENTIAL_COMPUTE, message);
+        requestIdByInstructionId[instructionId] = requestId;
         emit FccInstructionRequested(
             requestId, request.blobId, instructionId, OP_COMMAND_CONFIDENTIAL_COMPUTE, request.requester
         );
     }
 
     /// @notice Relays a verified FCC result to the existing controller boundary.
-    /// @dev The submitter is an explicit bridge while live FCC result attestation verification is being integrated.
+    /// @dev The submitter is a separate result-verification boundary. The deployed
+    ///      Prime Server verifier checks the official FCC machine signature before calling this function.
     function recordAccessResult(bytes32 requestId, bytes32 responseCommitment) external {
         require(msg.sender == resultSubmitter, "not result submitter");
         require(responseCommitment != bytes32(0), "response commitment required");

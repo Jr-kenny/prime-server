@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createDecipheriv, createECDH, createHash } from "node:crypto";
+import { createCipheriv, createDecipheriv, createECDH, createHash, randomBytes } from "node:crypto";
 import { createErasureEngine } from "../../provider/src/erasure.mjs";
-import { decryptBlob, prepareEncryptedBlob } from "../src/encryption.mjs";
+import { decryptBlob, openDeviceKeyPackage, prepareEncryptedBlob } from "../src/encryption.mjs";
 import { canonicalJson } from "../src/policy.mjs";
 
 function openEnvelope(envelope, teeKey) {
@@ -69,6 +69,43 @@ test("canonical JSON preserves and sorts nested metadata", () => {
   assert.equal(first, second);
   assert.notEqual(first, changed);
   assert.match(first, /"alpha":\{"a":"x","z":true\}/);
+});
+
+test("a device unwraps an FCC result package without the source file key", async () => {
+  const device = createECDH("secp256k1");
+  device.generateKeys();
+  const ephemeral = createECDH("secp256k1");
+  ephemeral.generateKeys();
+  const fileKey = randomBytes(32);
+  const requestId = `0x${"11".repeat(32)}`;
+  const blobId = `0x${"22".repeat(32)}`;
+  const deviceKeyCommitment = `0x${createHash("sha256").update(device.getPublicKey()).digest("hex")}`;
+  const wrappingKey = createHash("sha256").update(ephemeral.computeSecret(device.getPublicKey())).digest();
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", wrappingKey, iv);
+  const payload = Buffer.from(canonicalJson({
+    requestId,
+    blobId,
+    deviceKeyCommitment,
+    fileKey: `0x${fileKey.toString("hex")}`
+  }));
+  const ciphertext = Buffer.concat([cipher.update(payload), cipher.final()]);
+  const keyPackage = {
+    version: 1,
+    scheme: "secp256k1-ecies-aes256gcm-device",
+    requestId,
+    blobId,
+    deviceKeyCommitment,
+    ephemeralPublicKey: `0x${ephemeral.getPublicKey(undefined, "uncompressed").toString("hex")}`,
+    iv: `0x${iv.toString("hex")}`,
+    ciphertext: `0x${ciphertext.toString("hex")}`,
+    authTag: `0x${cipher.getAuthTag().toString("hex")}`,
+    fileKeyCommitment: `0x${createHash("sha256").update(fileKey).digest("hex")}`
+  };
+  const opened = openDeviceKeyPackage(keyPackage, device.getPrivateKey());
+  assert.deepEqual(opened, fileKey);
+  opened.fill(0);
+  fileKey.fill(0);
 });
 
 test("confidential preparation requires compute-only access and FCC public-key material", async () => {

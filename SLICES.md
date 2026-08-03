@@ -190,7 +190,7 @@ Acceptance:
 - A provider registration and blob creation transaction are independently readable.
 - The local evidence record contains chain ID, contract address, block numbers, and transaction hashes.
 
-Current output: the settlement-corrected registry is deployed to Coston2 at `0x5E43cCe14cf17c96aF6d7ADF47592f5118Ab05E1`. The deployment succeeded in block `33590506`, and the transaction, chain ID, compiler settings, global marker design, and 24,355-byte runtime verification are recorded in `docs/evidence/coston2-settlement-reassignment-fix-deployment.md`. The live provider, recovery, native payment, and settlement proofs are recorded in `docs/evidence/coston2-live-provider-recovery-settlement-proof.md`.
+Current output: the settlement-corrected registry is deployed to Coston2 at `0x5E43cCe14cf17c96aF6d7ADF47592f5118Ab05E1`. The deployment succeeded in block `33590506`, and the transaction, chain ID, compiler settings, global marker design, and 24,355-byte runtime verification are recorded in `docs/evidence/coston2-settlement-reassignment-fix-deployment.md`. Provider re-registration and the paid, private ciphertext, access-intent, recovery, and settlement proofs still need to be rerun against this address.
 
 ## Slice 8: event indexer and recovery coordinator
 
@@ -237,7 +237,7 @@ real upload
 -> matching final hash
 ```
 
-Current output: `scripts/coston2-demo.mjs` ran the complete live provider failure proof on Coston2 against the frozen registry. The current run is `coston2-1785785829219-56293`. A 2 MiB blob reached `active` after four provider acknowledgements. Providers 2 and 4 were stopped, the original bytes were reconstructed from the two surviving shards, both missing shards were rebuilt, and the final state reached `rebuilt` with an identical SHA-256 hash. The paid reassignment run `coston2-settlement-1785786797441-58600` then proved provider 1 immediate settlement, provider 2 replacement reserve settlement, and full payment settlement. Both runs are summarized in `docs/evidence/coston2-live-provider-recovery-settlement-proof.md`.
+Current output: `scripts/coston2-demo.mjs` ran the complete live proof on Coston2 against the replacement registry. A 2 MiB blob reached `active` after four provider acknowledgements. Provider 2 and provider 4 were stopped, shards 1 and 3 were removed from their storage paths, the original bytes were reconstructed from the two surviving shards, both missing shards were rebuilt, and the final state reached `rebuilt`. The input, recovered, and final SHA-256 hash were identical. The replacement run is `coston2-1785771713115-23093`, saved under `.prime-server/evidence/coston2/`, and summarized in `docs/evidence/coston2-live-proof.md`.
 
 ## Slice 10: operator view
 
@@ -270,7 +270,7 @@ The settlement-corrected registry is deployed to Coston2 at `0x5E43cCe14cf17c96a
 
 ## Slice 11: shared policy and native payment schema
 
-Status: `complete locally, native paid and settlement proof live on Coston2, XRP settlement pending`
+Status: `complete locally, corrected Coston2 registry deployed, live paid proof pending, XRP settlement pending`
 
 Dependencies: Slice 9.
 
@@ -289,11 +289,11 @@ Acceptance:
 - A real local EVM test registers a paid blob, uploads it through the developer API, pays the immediate claims for all four providers, and reads the partially settled payment state while the retention reserve remains escrowed.
 - The registry runtime stays below EIP-170 under the configured via-IR build.
 
-Evidence: The native payment, duration quote, retention reserve, and provider reassignment settlement tests pass locally. SDK and RPC suites pass. The corrected registry deployment and live native paid settlement proof are recorded in `docs/evidence/coston2-live-provider-recovery-settlement-proof.md`. The current via-IR build remains below EIP-170.
+Evidence: The native payment, duration quote, retention reserve, and provider reassignment settlement tests pass locally. SDK and RPC suites pass. The corrected registry deployment is recorded in `docs/evidence/coston2-settlement-reassignment-fix-deployment.md`. The live paid proof must be rerun against that address. The current via-IR build remains below EIP-170.
 
 ## Slice 11A: payment, metadata, and access hardening
 
-Status: `complete locally, native hardening proof live, private and confidential live proof pending`
+Status: `complete locally, corrected Coston2 registry deployed, live hardening proof pending`
 
 Dependencies: Slice 11.
 
@@ -313,7 +313,7 @@ Acceptance:
 - SDK tests cover nested canonicalization, encrypted metadata recovery, opaque names, and selected-wallet retrieval options.
 - RPC tests cover the owner-scoped selected-wallet ciphertext route.
 
-Evidence: Local Foundry, SDK, provider, and RPC suites pass. Native payment, provider recovery, and settlement are live on the corrected registry. Private ciphertext retrieval, FCC key release, and confidential compute still require their own live proof.
+Evidence: Local Foundry, SDK, provider, and RPC suites pass. The corrected registry deployment is recorded in `docs/evidence/coston2-settlement-reassignment-fix-deployment.md`. Provider re-registration and a complete live hardening proof are still required before these changes can be claimed live on Coston2.
 
 Freeze boundary: `PrimeServerRegistry` is frozen after this slice. FCC transport and XRP, FDC, and FAssets settlement continue in separate contracts and extensions. Future changes must preserve this registry ABI and storage layout unless a separately approved registry version is created.
 

@@ -17,10 +17,12 @@ The current frozen Coston2 registry deployment, including the recovery settlemen
 
 The source contract now includes `BlobOrigin`, native payment escrow, duration pricing, a post-expiry provider reserve, global per-shard settlement markers, storage policy, confidential access requests, `createOperatorBlob`, and `createOperatorBlobNamed`. The current build uses Solidity `0.8.24`, optimizer runs `100`, and via-IR compilation. Use the frozen deployment recorded in the settlement reassignment evidence. Do not point the RPC at an earlier proof address because its ABI and ownership boundary are different.
 
-The registry ABI and storage layout are frozen after the settlement reassignment fix. The corrected registry is deployed, and the live provider, recovery, native payment, and settlement proof is recorded in [docs/evidence/coston2-live-provider-recovery-settlement-proof.md](../docs/evidence/coston2-live-provider-recovery-settlement-proof.md). FCC instruction transport and XRP, FDC, and FAssets settlement remain separate contracts or extensions.
+The registry ABI and storage layout are frozen after the settlement reassignment fix. The corrected registry is deployed, while a new live paid-storage and recovery proof is still required before the complete build is described as live Coston2 infrastructure. FCC instruction transport and XRP, FDC, and FAssets settlement remain separate contracts or extensions.
 
 ## FCC instruction sender
 
 `src/fcc/PrimeServerInstructionSender.sol` is deployed separately from `PrimeServerRegistry`. Deploy it with the Coston2 `TeeExtensionRegistry` and `TeeMachineRegistry` addresses, register the sender as the FCC extension instruction sender, then call `setExtensionId()` once. The Prime Server registry admin must grant the sender address `confidentialAccessController` permission before a result relay can call `recordAccessResult`.
 
-The sender and extension core are locally tested only. Do not record a live FCC deployment, approved TEE code hash, attestation, or key release until the official Flare FCE registration and end-to-end flow has completed.
+The current Coston2 sender is `0x84B117F9a8262a3a7003da843d53e9cbFE756232`. Its result verifier is `0xdA5C56F28d0834b1084E98074aa1F3432f294e0E`, and the sender is configured to extension ID `65922`. Deployment and remaining official simulated-TEE steps are recorded in [docs/evidence/coston2-fcc-sender-deployment.md](../docs/evidence/coston2-fcc-sender-deployment.md).
+
+The verifier now checks the official `TEE_ACTION_RESULT` domain hash, registered machine identity, extension binding, and instruction-to-request binding before relaying a result. The contracts and local extension core are tested. A live FCC key release still requires the official Coston2 extension proxy, registered simulated TEE machine, and end-to-end result proof.
