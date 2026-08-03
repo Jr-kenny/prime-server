@@ -7,7 +7,8 @@ function emptyState() {
   return {
     version: STATE_VERSION,
     cursors: {},
-    recoveryJobs: {}
+    recoveryJobs: {},
+    objects: {}
   };
 }
 
@@ -23,10 +24,15 @@ function normalizeMissingShards(missingShards = []) {
   return [...new Set(missingShards.map((shardIndex) => Number(shardIndex)))].sort((a, b) => a - b);
 }
 
+function objectKey(account, name) {
+  return `${String(account).toLowerCase()}:${Buffer.from(String(name)).toString("base64url")}`;
+}
+
 function validateState(state) {
   if (!state || state.version !== STATE_VERSION || typeof state.cursors !== "object" || typeof state.recoveryJobs !== "object") {
     throw new Error("unsupported operational state format");
   }
+  if (!state.objects || typeof state.objects !== "object") state.objects = {};
   return state;
 }
 
@@ -115,6 +121,38 @@ export class JsonOperationalStore {
     await this.ready();
     await this.lock;
     return Object.values(clone(this.state.recoveryJobs)).sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  }
+
+  async getObject(account, name) {
+    await this.ready();
+    await this.lock;
+    return clone(this.state.objects[objectKey(account, name)] || null);
+  }
+
+  async putObject(object) {
+    if (!object?.account || !object?.name || !object?.blobId) throw new Error("object account, name, and blob ID are required");
+    return this.update((state) => {
+      const normalized = { ...object, account: String(object.account), name: String(object.name) };
+      state.objects[objectKey(normalized.account, normalized.name)] = normalized;
+      return normalized;
+    });
+  }
+
+  async listObjects(account, { prefix = "", limit = 100, cursor = "" } = {}) {
+    const normalizedAccount = String(account).toLowerCase();
+    const boundedLimit = Math.min(Math.max(Number(limit) || 100, 1), 1000);
+    await this.ready();
+    await this.lock;
+    const objects = Object.values(this.state.objects)
+      .filter((object) => object.account.toLowerCase() === normalizedAccount && object.name.startsWith(prefix))
+      .sort((left, right) => left.name.localeCompare(right.name));
+    const startIndex = cursor ? objects.findIndex((object) => object.name > cursor) : 0;
+    const start = startIndex < 0 ? objects.length : startIndex;
+    const selected = objects.slice(start, start + boundedLimit);
+    return {
+      objects: clone(selected),
+      nextCursor: start + selected.length < objects.length ? selected.at(-1).name : null
+    };
   }
 
   async enqueueRecovery({ blobId, reason = "provider_failure", missingShards = [] } = {}) {

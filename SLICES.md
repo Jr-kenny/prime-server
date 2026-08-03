@@ -107,7 +107,7 @@ Acceptance:
 - Recovered bytes have the original SHA-256 hash.
 - Rebuilt shards have the expected commitments.
 
-Evidence: 2 erasure tests passed using `@shelby-protocol/clay-codes` 0.0.3 with a four-shard, two-data-shard, 1 MiB chunk layout.
+Evidence: 2 erasure tests passed using the Clay Codes 0.0.3 runtime with a four-shard, two-data-shard, 1 MiB chunk layout.
 
 ## Slice 4: multi-provider harness
 
@@ -294,6 +294,29 @@ Acceptance:
 
 - The extension has a real Flare proof and a clear role in the storage lifecycle.
 - The core failure and recovery path still works if the extension is disabled.
+
+## Slice 13: developer-facing storage protocol
+
+Status: `in progress`
+
+Dependencies: Slice 9.
+
+Output:
+
+- Wallet-signature sessions.
+- Wallet-owned expiring blobs on Flare, with an owner-scoped onchain name index.
+- Named object API with upload, list, metadata, full download, and range reads.
+- JavaScript SDK for external applications.
+- Stable API base path under `/prime/v1`.
+
+Acceptance:
+
+- A wallet signs in without exposing a private key to the gateway.
+- An upload is owned by that wallet on a local EVM registry, and the full name plus name hash are readable from chain state.
+- An external client can put, list, head, download, and range-read a named object.
+- The API returns a clear capability document and does not claim S3 or payment support before those layers exist.
+
+Current output: the contract, local EVM adapter, gateway, SDK, protocol identity notes, and gateway integration test are implemented. Live Coston2 redeployment and a real branded DNS record remain before this slice can be marked complete.
 
 ## Handoff rule for future sessions
 

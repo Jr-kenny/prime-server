@@ -1,4 +1,5 @@
 import { createPublicKey, verify } from "node:crypto";
+import { keccak256, stringToHex } from "viem";
 
 function fail(message) {
   throw new Error(message);
@@ -8,6 +9,7 @@ export class MemoryRegistry {
   constructor() {
     this.providers = new Map();
     this.blobs = new Map();
+    this.blobIdByOwnerNameHash = new Map();
   }
 
   async registerProvider({ providerId, endpoint, publicKey }) {
@@ -16,7 +18,7 @@ export class MemoryRegistry {
     return this.providers.get(providerId);
   }
 
-  async createBlob({ blobId, owner, commitment, size, chunkSize, dataShards, totalShards }) {
+  async createBlob({ blobId, owner, commitment, size, chunkSize, dataShards, totalShards, expiresAt = 0 }) {
     if (this.blobs.has(blobId)) fail("blob already exists");
     this.blobs.set(blobId, {
       blobId,
@@ -26,10 +28,36 @@ export class MemoryRegistry {
       chunkSize,
       dataShards,
       totalShards,
+      expiresAt: Number(expiresAt),
+      blobName: "",
+      nameHash: "",
       status: "pending",
       placement: new Map(),
       acknowledgements: new Map()
     });
+  }
+
+  async createBlobFor({ owner, ...blob }) {
+    return this.createBlob({ ...blob, owner });
+  }
+
+  async createBlobNamed({ blobId, blobName, owner, commitment, size, chunkSize, dataShards, totalShards, expiresAt }) {
+    if (!blobName || Buffer.byteLength(blobName, "utf8") > 1024 || blobName.includes("\0") || blobName.startsWith("/") || blobName.endsWith("/")) {
+      fail("invalid blob name");
+    }
+    const nameHash = keccak256(stringToHex(blobName));
+    const ownerKey = String(owner).toLowerCase();
+    const nameKey = `${ownerKey}:${nameHash}`;
+    if (this.blobIdByOwnerNameHash.has(nameKey)) fail("blob name already exists");
+    await this.createBlob({ blobId, owner, commitment, size, chunkSize, dataShards, totalShards, expiresAt });
+    const blob = this.blobs.get(blobId);
+    blob.blobName = blobName;
+    blob.nameHash = nameHash.slice(2);
+    this.blobIdByOwnerNameHash.set(nameKey, blobId);
+  }
+
+  async createBlobForNamed({ owner, ...blob }) {
+    return this.createBlobNamed({ ...blob, owner });
   }
 
   async assignShard(blobId, shardIndex, providerId) {
@@ -109,6 +137,9 @@ export class MemoryRegistry {
       chunkSize: blob.chunkSize,
       dataShards: blob.dataShards,
       totalShards: blob.totalShards,
+      expiresAt: blob.expiresAt,
+      blobName: blob.blobName,
+      nameHash: blob.nameHash,
       status: blob.status,
       placement: Object.fromEntries(blob.placement),
       acknowledgements: [...blob.acknowledgements.values()]

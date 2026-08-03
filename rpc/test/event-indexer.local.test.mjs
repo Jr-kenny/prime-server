@@ -73,13 +73,15 @@ test("event indexer resumes from a block cursor and parses Prime Server events",
       });
     }
     const blobId = createHash("sha256").update("indexer-blob").digest("hex");
-    await registry.createBlob({
+    await registry.createBlobNamed({
       blobId,
+      blobName: "indexer/test.bin",
       commitment: createHash("sha256").update("indexer-root").digest("hex"),
       size: 2048,
       chunkSize: 1024,
       dataShards: 2,
-      totalShards: 4
+      totalShards: 4,
+      expiresAt: Math.floor(Date.now() / 1000) + 3_600
     });
     for (let index = 0; index < 4; index += 1) await registry.assignShard(blobId, index, `provider-${index + 1}`);
 
@@ -87,12 +89,13 @@ test("event indexer resumes from a block cursor and parses Prime Server events",
     const first = await indexer.poll();
     assert.equal(first.filter((event) => event.eventName === "ProviderRegistered").length, 4);
     assert.equal(first.filter((event) => event.eventName === "BlobCreated").length, 1);
+    assert.equal(first.filter((event) => event.eventName === "BlobNamed").length, 1);
     assert.equal(first.filter((event) => event.eventName === "ShardAssigned").length, 4);
     const cursor = indexer.nextBlock;
     const second = await indexer.poll();
     assert.equal(second.length, 0);
     assert.equal(indexer.nextBlock, cursor);
-    assert.equal(indexer.snapshot().events.length, 9);
+    assert.equal(indexer.snapshot().events.length, 10);
   } finally {
     anvil.kill("SIGTERM");
   }

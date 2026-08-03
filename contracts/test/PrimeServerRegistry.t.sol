@@ -25,6 +25,20 @@ contract PrimeServerActor {
     ) external {
         registry.acknowledgeShard(blobId, shardIndex, shardCommitment, shardSize);
     }
+
+    function createNamed(
+        PrimeServerRegistry registry,
+        bytes32 blobId,
+        string calldata blobName,
+        bytes32 commitment,
+        uint64 size,
+        uint32 chunkSize,
+        uint8 dataShards,
+        uint8 totalShards,
+        uint64 expiresAt
+    ) external {
+        registry.createBlobNamed(blobId, blobName, commitment, size, chunkSize, dataShards, totalShards, expiresAt);
+    }
 }
 
 contract PrimeServerRegistryTest {
@@ -69,10 +83,11 @@ contract PrimeServerRegistryTest {
 
         registry.finalizeBlob(blobId);
 
-        (,,,,,, uint256 acknowledgementCount, PrimeServerRegistry.BlobStatus status, bool exists) = registry.blobs(blobId);
+        (,,,,,, uint256 acknowledgementCount, PrimeServerRegistry.BlobStatus status, bool exists, uint64 expiresAt) = registry.blobs(blobId);
         require(acknowledgementCount == 4, "acknowledgement count mismatch");
         require(status == PrimeServerRegistry.BlobStatus.Active, "blob should be active");
         require(exists, "blob should exist");
+        require(expiresAt == 0, "legacy blob should not expire");
     }
 
     function testFinalizeRejectsMissingAcknowledgement() public {
@@ -117,8 +132,67 @@ contract PrimeServerRegistryTest {
         registry.recordRebuiltShard(blobId, 1, replacementId, bytes32(uint256(401)));
 
         require(registry.placement(blobId, 1) == replacementId, "placement was not reassigned");
-        (,,,,,, , PrimeServerRegistry.BlobStatus status,) = registry.blobs(blobId);
+        (,,,,,, , PrimeServerRegistry.BlobStatus status,,) = registry.blobs(blobId);
         require(status == PrimeServerRegistry.BlobStatus.Rebuilt, "blob should be rebuilt");
+    }
+
+    function testCoordinatorCanCreateUserOwnedExpiringBlob() public {
+        PrimeServerActor user = new PrimeServerActor();
+        uint64 expiresAt = uint64(block.timestamp + 86_400);
+        bytes32 blobId = keccak256("user-owned-blob");
+        string memory blobName = "app/config.json";
+
+        registry.createBlobForNamed(address(user), blobId, blobName, keccak256("user-root"), 1024, 1024, 2, 4, expiresAt);
+
+        (address owner,,,,,,, , bool exists, uint64 storedExpiry) = registry.blobs(blobId);
+        require(owner == address(user), "blob owner should be the user wallet");
+        require(exists, "user blob should exist");
+        require(storedExpiry == expiresAt, "blob expiry mismatch");
+        bytes32 nameHash = keccak256(bytes(blobName));
+        require(registry.blobNameHashes(blobId) == nameHash, "blob name hash mismatch");
+        require(keccak256(bytes(registry.blobNames(blobId))) == nameHash, "blob name mismatch");
+        require(registry.blobIdByOwnerNameHash(address(user), nameHash) == blobId, "owner name index mismatch");
+
+        _assertDuplicateNameRejected(user, blobName, expiresAt);
+    }
+
+    function testWalletCanCreateNamedBlob() public {
+        PrimeServerActor user = new PrimeServerActor();
+        bytes32 blobId = keccak256("direct-user-owned-blob");
+        string memory blobName = "wallet/owned.txt";
+        uint64 expiresAt = uint64(block.timestamp + 86_400);
+
+        user.createNamed(registry, blobId, blobName, keccak256("direct-user-root"), 1024, 1024, 2, 4, expiresAt);
+
+        (address owner,,,,,,, , bool exists, uint64 storedExpiry) = registry.blobs(blobId);
+        require(owner == address(user), "direct blob owner should be the signing wallet");
+        require(exists, "direct blob should exist");
+        require(storedExpiry == expiresAt, "direct blob expiry mismatch");
+        require(keccak256(bytes(registry.blobNames(blobId))) == keccak256(bytes(blobName)), "direct blob name mismatch");
+    }
+
+    function _assertDuplicateNameRejected(
+        PrimeServerActor user,
+        string memory blobName,
+        uint64 expiresAt
+    ) internal {
+        bool reverted;
+        try registry.createBlobForNamed(
+            address(user),
+            keccak256("duplicate-name"),
+            blobName,
+            keccak256("duplicate-root"),
+            1024,
+            1024,
+            2,
+            4,
+            expiresAt
+        ) {
+            reverted = false;
+        } catch {
+            reverted = true;
+        }
+        require(reverted, "owner blob names should be unique");
     }
 
     function _registerFour()
@@ -135,4 +209,3 @@ contract PrimeServerRegistryTest {
         p4.register(registry, "http://127.0.0.1:7104", bytes32(uint256(4)));
     }
 }
-

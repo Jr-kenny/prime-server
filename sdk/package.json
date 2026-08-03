@@ -1,0 +1,12 @@
+{
+  "name": "@prime-server/sdk",
+  "version": "0.1.0",
+  "description": "Developer client for Prime Server Flare blob storage",
+  "type": "module",
+  "exports": {
+    ".": "./src/client.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

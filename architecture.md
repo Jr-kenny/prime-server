@@ -2,7 +2,7 @@
 
 ## 1. Project definition
 
-Prime Server is an independent, Flare-native implementation of the core architecture behind Shelby's decentralized blob storage network.
+Prime Server is an independent, Flare-native decentralized blob storage network.
 
 It gives users a storage API while using multiple independent provider processes to store erasure-coded data. Flare smart contracts act as the coordination and verification layer for providers, blob commitments, placement, acknowledgements, payment state, and recovery events.
 
@@ -86,7 +86,20 @@ The demo must run four processes, even when all four processes run on the same M
 
 ### 4.3 Prime RPC
 
-The RPC is the client-facing control and data-plane gateway. The initial API should be small:
+The RPC contains two boundaries. The legacy `/v1` routes support the internal proof harness. The developer-facing `/prime/v1` routes are the product API that external applications consume.
+
+The developer API is wallet-owned and named like a normal blob service:
+
+```text
+GET  /prime/v1/auth/challenge?address=<wallet>
+POST /prime/v1/auth/session
+PUT  /prime/v1/blobs/<wallet>/<blob-name>
+GET  /prime/v1/blobs/<wallet>/<blob-name>
+HEAD /prime/v1/blobs/<wallet>/<blob-name>
+GET  /prime/v1/blobs/<wallet>
+```
+
+The initial internal API remains small:
 
 ```text
 POST /v1/blobs
@@ -98,9 +111,9 @@ GET  /v1/providers
 GET  /health
 ```
 
-The upload path creates a blob plan, erasure-codes the input, assigns shards to providers, uploads the shards, verifies acknowledgements, and submits the required chain transactions.
+The developer upload path authenticates a wallet, requires a storage expiration, creates a wallet-owned named blob on Flare through the coordinator, erasure-codes the input, assigns shards to providers, uploads the shards, verifies acknowledgements, and submits the required chain transactions. The registry stores the owner-scoped name hash and full blob name, so the gateway’s operational index is recoverable from chain state while provider placement and recovery remain under the coordinator role.
 
-The download path reads enough surviving shards to reconstruct the requested bytes. A range request must avoid reading the whole file when the shard layout allows a narrower read.
+The download path reads enough surviving shards to reconstruct the requested bytes. A range request must avoid reading the whole file when the shard layout allows a narrower read. The developer API adds a JavaScript SDK, while multipart uploads and an S3-compatible gateway remain planned compatibility layers.
 
 ### 4.4 Coordinator and indexer
 
@@ -126,6 +139,8 @@ The repository includes an explicit `MemoryRegistry` adapter for local integrati
 ```text
 blobId             unique content or upload identifier
 owner              Flare address
+blobName           owner-scoped developer object name
+nameHash           keccak256(blobName), indexed by owner
 commitment         root commitment for the original blob
 size               original byte length
 chunkSize          initial value: 1 MiB
@@ -160,7 +175,7 @@ signature          provider signature over the acknowledgement
 
 The first network uses a four-shard, two-data-shard layout. Any two valid shards are sufficient to reconstruct the original data. This is the smallest layout that gives the live demo a meaningful failure event.
 
-The implementation should reuse the tested Shelby-compatible Clay or Reed-Solomon data-plane primitives where licensing and package boundaries allow. The protocol must keep the coding layer behind an interface so the provider daemon can later support larger layouts such as ten data shards and sixteen total shards.
+The implementation should reuse tested Clay or Reed-Solomon data-plane primitives where licensing and package boundaries allow. The protocol must keep the coding layer behind an interface so the provider daemon can later support larger layouts such as ten data shards and sixteen total shards.
 
 The following must be tested with deterministic fixtures:
 
@@ -171,7 +186,7 @@ The following must be tested with deterministic fixtures:
 - Rebuild the erased shards.
 - Verify the rebuilt shard commitments.
 
-The current provider implementation uses `@shelby-protocol/clay-codes` 0.0.3 through its Node WASM entry point. The four-provider Clay runtime requires 1 MiB chunks. Each shard carries two related commitments: a SHA-256 content commitment used by the provider storage and RPC boundary, and the Clay chunk or chunkset roots used to preserve the erasure-code verification path.
+The current provider implementation uses the Clay Codes 0.0.3 Node WASM runtime. The four-provider Clay runtime requires 1 MiB chunks. Each shard carries two related commitments: a SHA-256 content commitment used by the provider storage and RPC boundary, and the Clay chunk or chunkset roots used to preserve the erasure-code verification path.
 
 ## 7. Onchain lifecycle
 
@@ -248,7 +263,7 @@ Included:
 Deferred:
 
 - A sixteen-provider production topology.
-- Full Shelby micropayment-channel parity.
+- Full micropayment-channel parity.
 - Production audit markets and penalty economics.
 - Global provider discovery.
 - Multi-region deployment.
@@ -259,8 +274,8 @@ Deferred:
 
 Verified before implementation in this repository:
 
-- Shelby-compatible four-provider erasure recovery passed locally.
-- Shelby-compatible sixteen-provider erasure recovery passed locally.
+- Four-provider erasure recovery passed locally.
+- Sixteen-provider erasure recovery passed locally.
 - Flare Coston2 RPC responded with chain ID 114.
 - The broader XMTP checkout was inspected separately and remains a separate project option.
 

@@ -32,6 +32,94 @@ export const primeServerRegistryAbi = [
   },
   {
     type: "function",
+    name: "createBlobWithExpiry",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "blobId", type: "bytes32" },
+      { name: "commitment", type: "bytes32" },
+      { name: "size", type: "uint64" },
+      { name: "chunkSize", type: "uint32" },
+      { name: "dataShards", type: "uint8" },
+      { name: "totalShards", type: "uint8" },
+      { name: "expiresAt", type: "uint64" }
+    ],
+    outputs: []
+  },
+  {
+    type: "function",
+    name: "createBlobNamed",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "blobId", type: "bytes32" },
+      { name: "blobName", type: "string" },
+      { name: "commitment", type: "bytes32" },
+      { name: "size", type: "uint64" },
+      { name: "chunkSize", type: "uint32" },
+      { name: "dataShards", type: "uint8" },
+      { name: "totalShards", type: "uint8" },
+      { name: "expiresAt", type: "uint64" }
+    ],
+    outputs: []
+  },
+  {
+    type: "function",
+    name: "createBlobFor",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "blobId", type: "bytes32" },
+      { name: "commitment", type: "bytes32" },
+      { name: "size", type: "uint64" },
+      { name: "chunkSize", type: "uint32" },
+      { name: "dataShards", type: "uint8" },
+      { name: "totalShards", type: "uint8" },
+      { name: "expiresAt", type: "uint64" }
+    ],
+    outputs: []
+  },
+  {
+    type: "function",
+    name: "createBlobForNamed",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "blobId", type: "bytes32" },
+      { name: "blobName", type: "string" },
+      { name: "commitment", type: "bytes32" },
+      { name: "size", type: "uint64" },
+      { name: "chunkSize", type: "uint32" },
+      { name: "dataShards", type: "uint8" },
+      { name: "totalShards", type: "uint8" },
+      { name: "expiresAt", type: "uint64" }
+    ],
+    outputs: []
+  },
+  {
+    type: "function",
+    name: "blobNameHashes",
+    stateMutability: "view",
+    inputs: [{ name: "blobId", type: "bytes32" }],
+    outputs: [{ name: "nameHash", type: "bytes32" }]
+  },
+  {
+    type: "function",
+    name: "blobNames",
+    stateMutability: "view",
+    inputs: [{ name: "blobId", type: "bytes32" }],
+    outputs: [{ name: "blobName", type: "string" }]
+  },
+  {
+    type: "function",
+    name: "blobIdByOwnerNameHash",
+    stateMutability: "view",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "nameHash", type: "bytes32" }
+    ],
+    outputs: [{ name: "blobId", type: "bytes32" }]
+  },
+  {
+    type: "function",
     name: "assignShard",
     stateMutability: "nonpayable",
     inputs: [
@@ -107,7 +195,8 @@ export const primeServerRegistryAbi = [
       { name: "totalShards", type: "uint8" },
       { name: "acknowledgementCount", type: "uint256" },
       { name: "status", type: "uint8" },
-      { name: "exists", type: "bool" }
+      { name: "exists", type: "bool" },
+      { name: "expiresAt", type: "uint64" }
     ]
   },
   {
@@ -165,6 +254,17 @@ export const primeServerRegistryAbi = [
       { name: "owner", type: "address", indexed: true },
       { name: "commitment", type: "bytes32", indexed: false },
       { name: "size", type: "uint64", indexed: false }
+    ]
+  },
+  {
+    type: "event",
+    name: "BlobNamed",
+    anonymous: false,
+    inputs: [
+      { name: "blobId", type: "bytes32", indexed: true },
+      { name: "owner", type: "address", indexed: true },
+      { name: "nameHash", type: "bytes32", indexed: true },
+      { name: "blobName", type: "string", indexed: false }
     ]
   },
   {

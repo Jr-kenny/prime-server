@@ -11,10 +11,11 @@ The deployment uses:
 - SSM Parameter Store SecureString values for the Coston2 environment and provider identities.
 - A security group with only TCP `8080` open to the public RPC.
 - A CloudWatch log group at `/prime-server/node` with fourteen-day retention.
+- The developer gateway at `/prime/v1`, using wallet-signature sessions and the ignored `PRIME_SERVER_AUTH_SECRET`.
 
 The normal market type is on-demand. If the account's on-demand vCPU quota is temporarily constrained, run with `PRIME_SERVER_MARKET_TYPE=spot bash deploy/aws/deploy.sh`. Spot mode uses stop-on-interruption so the encrypted volume and operational state remain attached, but the public IP can change after a stop and the node is subject to Spot capacity reclamation.
 
-The deployment intentionally keeps payment extension work out of the node. The current node uses the already deployed Coston2 registry and preserves the four provider identities from the canonical live proof.
+The deployment intentionally keeps payment extension work out of the node. The upgraded developer gateway requires the user-owned registry contract version that supports coordinator-created blobs. Set `PRIME_SERVER_PUBLIC_BASE_URL` after a DNS name is available, for example `https://api.primeserver.example/prime/v1`.
 
 Run from the repository root after the local `.env` and the canonical `.prime-server/coston2/<run>/providers` identities exist:
 

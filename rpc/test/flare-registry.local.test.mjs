@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { execFile as execFileCallback, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
-import { createPublicClient, createWalletClient, http, parseEther } from "viem";
+import { createPublicClient, createWalletClient, http, keccak256, parseEther, stringToHex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { createCoston2Chain, createFlareRegistry } from "../src/flare-registry.mjs";
 
@@ -110,6 +110,28 @@ test("Flare registry adapter writes the provider and blob lifecycle to a local E
     assert.equal(onchain.acknowledgementCount, 4);
     assert.equal(onchain.status, "active");
     assert.equal(onchain.commitment, commitment);
+
+    const user = privateKeyToAccount(generatePrivateKey());
+    const userBlobId = createHash("sha256").update("user-owned-local-blob").digest("hex");
+    const userCommitment = createHash("sha256").update("user-owned-local-root").digest("hex");
+    const userBlobName = "app/config.json";
+    const expiresAt = Math.floor(Date.now() / 1000) + 3_600;
+    await registry.createBlobForNamed({
+      owner: user.address,
+      blobId: userBlobId,
+      blobName: userBlobName,
+      commitment: userCommitment,
+      size: 1024,
+      chunkSize: 1024,
+      dataShards: 2,
+      totalShards: 4,
+      expiresAt
+    });
+    const userOnchain = await registry.getBlob(userBlobId);
+    assert.equal(userOnchain.owner.toLowerCase(), user.address.toLowerCase());
+    assert.equal(userOnchain.expiresAt, expiresAt);
+    assert.equal(userOnchain.blobName, userBlobName);
+    assert.equal(userOnchain.nameHash, keccak256(stringToHex(userBlobName)).slice(2));
   } finally {
     anvil.kill("SIGTERM");
   }

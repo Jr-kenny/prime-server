@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createFlareRegistry } from "../rpc/src/flare-registry.mjs";
 import { PrimeServerEventIndexer } from "../rpc/src/event-indexer.mjs";
+import { PrimeAuthManager } from "../rpc/src/auth.mjs";
 import { JsonOperationalStore } from "../rpc/src/operational-store.mjs";
 import { PrimeServerRecoveryCoordinator } from "../rpc/src/recovery-coordinator.mjs";
 import { createPrimeRpcServer, rebuildBlob } from "../rpc/src/server.mjs";
@@ -118,6 +119,7 @@ async function main() {
   const rpcUrl = requireConfig(config, "PRIME_SERVER_RPC_URL");
   const registryAddress = requireConfig(config, "PRIME_SERVER_REGISTRY_ADDRESS");
   const deployerPrivateKey = requireConfig(config, "PRIME_SERVER_DEPLOYER_PRIVATE_KEY");
+  const authSecret = requireConfig(config, "PRIME_SERVER_AUTH_SECRET");
   const providerPrivateKeys = Object.fromEntries(providerIds.map((providerId, index) => [
     providerId,
     requireConfig(config, `PRIME_SERVER_PROVIDER_${index + 1}_PRIVATE_KEY`)
@@ -131,6 +133,8 @@ async function main() {
     config.PRIME_SERVER_OPERATIONAL_STATE_PATH || path.join(repositoryRoot, ".prime-server", "runtime", "operational-state.json")
   );
   const pollIntervalMs = Number(config.PRIME_SERVER_EVENT_POLL_INTERVAL_MS || 15_000);
+  const publicBaseUrl = (config.PRIME_SERVER_PUBLIC_BASE_URL || "").replace(/\/$/, "");
+  const corsOrigin = config.PRIME_SERVER_CORS_ORIGIN || "*";
 
   if (chainId !== 114) throw new Error(`expected Coston2 chain ID 114, got ${chainId}`);
   if (!Number.isSafeInteger(rpcPort) || rpcPort < 1 || rpcPort > 65535) throw new Error("invalid Prime RPC port");
@@ -193,7 +197,19 @@ async function main() {
       })
     });
 
-    rpc = await createPrimeRpcServer({ providers, registry, recoveryCoordinator });
+    const authManager = new PrimeAuthManager({
+      secret: authSecret,
+      domain: config.PRIME_SERVER_AUTH_DOMAIN || "api.primeserver"
+    });
+    rpc = await createPrimeRpcServer({
+      providers,
+      registry,
+      recoveryCoordinator,
+      objectStore: operationalStore,
+      authManager,
+      publicBaseUrl,
+      corsOrigin
+    });
     await new Promise((resolve) => rpc.server.listen(rpcPort, rpcHost, resolve));
 
     const pollEvents = async () => {

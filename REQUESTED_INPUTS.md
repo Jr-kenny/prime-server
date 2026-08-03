@@ -7,7 +7,7 @@ This file is the handoff list for anything that must come from the user or the l
 - Node.js and a package manager. The implementation can use the existing Mac toolchain if it passes the version checks.
 - Foundry. The current contract scaffold already builds with the installed Foundry toolchain.
 - A running Docker daemon if we choose containers for the four provider processes or Postgres.
-- Permission to use the local Shelby-compatible erasure and commitment packages already inspected on the Mac.
+- Permission to use the local erasure and commitment packages already inspected on the Mac.
 
 ## Needed before Coston2 deployment
 

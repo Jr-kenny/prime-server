@@ -1,6 +1,6 @@
 # Prime Server
 
-Prime Server is a Flare-native, verifiable decentralized storage network inspired by Shelby's erasure-coded storage architecture.
+Prime Server is a Flare-native, verifiable decentralized storage network with erasure-coded storage, wallet-owned blobs, and provider recovery.
 
 The project is built around one visible proof:
 
@@ -22,13 +22,17 @@ The first live proof is complete on Flare Coston2. A real 2 MiB blob was uploade
 - [scripts/coston2-demo.mjs](./scripts/coston2-demo.mjs) runs the live upload, failure, recovery, rebuild, and final-read proof.
 - [docs/evidence/coston2-live-proof.md](./docs/evidence/coston2-live-proof.md) records the canonical Coston2 run.
 - [contracts/src/PrimeServerRegistry.sol](./contracts/src/PrimeServerRegistry.sol) is the first onchain coordination surface.
+- [docs/developer-api.md](./docs/developer-api.md) defines the wallet-owned developer API.
+- [docs/protocol-identity-notes.md](./docs/protocol-identity-notes.md) records the owner and named-blob protocol decisions.
+- [sdk/README.md](./sdk/README.md) shows how applications use Prime Server from JavaScript.
 
 ## Repository layout
 
 ```text
 contracts/   Flare smart contracts and Foundry configuration
 provider/    Storage provider daemon and local shard storage
-rpc/         Client-facing upload, download, and range-read API
+rpc/         Prime RPC and wallet-owned developer gateway
+sdk/         JavaScript client for the developer gateway
 scripts/     Local network, deployment, and demo orchestration
 docs/        Demo script and project decisions
 test/        Cross-component and recovery tests

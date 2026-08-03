@@ -107,14 +107,58 @@ export function createFlareRegistry({
       return { ...result, providerId: onchainProviderId.toString(), operator: provider.account.address };
     },
 
-    async createBlob({ blobId, commitment, size, chunkSize, dataShards, totalShards }) {
-      return write(deployerWallet, "createBlob", [
+    async createBlob({ blobId, commitment, size, chunkSize, dataShards, totalShards, expiresAt = 0 }) {
+      const args = [
         `0x${blobId.replace(/^0x/, "")}`,
         `0x${commitment.replace(/^0x/, "")}`,
         BigInt(size),
         Number(chunkSize),
         Number(dataShards),
         Number(totalShards)
+      ];
+      if (Number(expiresAt) > 0) {
+        return write(deployerWallet, "createBlobWithExpiry", [...args, BigInt(expiresAt)]);
+      }
+      return write(deployerWallet, "createBlob", args);
+    },
+
+    async createBlobNamed({ blobId, blobName, commitment, size, chunkSize, dataShards, totalShards, expiresAt }) {
+      return write(deployerWallet, "createBlobNamed", [
+        `0x${blobId.replace(/^0x/, "")}`,
+        blobName,
+        `0x${commitment.replace(/^0x/, "")}`,
+        BigInt(size),
+        Number(chunkSize),
+        Number(dataShards),
+        Number(totalShards),
+        BigInt(expiresAt)
+      ]);
+    },
+
+    async createBlobFor({ owner, blobId, commitment, size, chunkSize, dataShards, totalShards, expiresAt }) {
+      return write(deployerWallet, "createBlobFor", [
+        owner,
+        `0x${blobId.replace(/^0x/, "")}`,
+        `0x${commitment.replace(/^0x/, "")}`,
+        BigInt(size),
+        Number(chunkSize),
+        Number(dataShards),
+        Number(totalShards),
+        BigInt(expiresAt)
+      ]);
+    },
+
+    async createBlobForNamed({ owner, blobId, blobName, commitment, size, chunkSize, dataShards, totalShards, expiresAt }) {
+      return write(deployerWallet, "createBlobForNamed", [
+        owner,
+        `0x${blobId.replace(/^0x/, "")}`,
+        blobName,
+        `0x${commitment.replace(/^0x/, "")}`,
+        BigInt(size),
+        Number(chunkSize),
+        Number(dataShards),
+        Number(totalShards),
+        BigInt(expiresAt)
       ]);
     },
 
@@ -198,6 +242,26 @@ export function createFlareRegistry({
         }
       }
       const statusNames = ["pending", "active", "recovering", "rebuilt", "revoked"];
+      let nameHash = "";
+      let blobName = "";
+      try {
+        nameHash = (await publicClient.readContract({
+          address,
+          abi: primeServerRegistryAbi,
+          functionName: "blobNameHashes",
+          args: [`0x${blobId.replace(/^0x/, "")}`]
+        })).replace(/^0x/, "");
+        if (nameHash && !/^0+$/.test(nameHash)) {
+          blobName = await publicClient.readContract({
+            address,
+            abi: primeServerRegistryAbi,
+            functionName: "blobNames",
+            args: [`0x${blobId.replace(/^0x/, "")}`]
+          });
+        }
+      } catch {
+        // The compatibility path supports registries deployed before named blobs.
+      }
       return {
         blobId,
         owner: raw[0],
@@ -208,6 +272,9 @@ export function createFlareRegistry({
         totalShards,
         acknowledgementCount: Number(raw[6]),
         status: statusNames[Number(raw[7])] || "unknown",
+        expiresAt: Number(raw[9] || 0),
+        nameHash,
+        blobName,
         placement,
         acknowledgements
       };

@@ -42,7 +42,8 @@ for required_key in \
   PRIME_SERVER_PROVIDER_3_PRIVATE_KEY \
   PRIME_SERVER_PROVIDER_4_PRIVATE_KEY \
   PRIME_SERVER_RPC_URL \
-  PRIME_SERVER_REGISTRY_ADDRESS; do
+  PRIME_SERVER_REGISTRY_ADDRESS \
+  PRIME_SERVER_AUTH_SECRET; do
   if ! grep -q "^${required_key}=" "$ENV_FILE"; then
     echo "Missing $required_key in $ENV_FILE" >&2
     exit 1
