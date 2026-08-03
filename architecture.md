@@ -169,6 +169,8 @@ The following must be tested with deterministic fixtures:
 - Rebuild the erased shards.
 - Verify the rebuilt shard commitments.
 
+The current provider implementation uses `@shelby-protocol/clay-codes` 0.0.3 through its Node WASM entry point. The four-provider Clay runtime requires 1 MiB chunks. Each shard carries two related commitments: a SHA-256 content commitment used by the provider storage and RPC boundary, and the Clay chunk or chunkset roots used to preserve the erasure-code verification path.
+
 ## 7. Onchain lifecycle
 
 ```text
@@ -266,4 +268,3 @@ Repository status:
 - Prime Server contract not yet deployed.
 - No public endpoint exists yet.
 - No storage or payment claim is valid until a test run records evidence.
-

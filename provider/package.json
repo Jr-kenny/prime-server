@@ -1,0 +1,14 @@
+{
+  "name": "@prime-server/provider",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.mjs",
+    "dev": "node --watch src/server.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@shelby-protocol/clay-codes": "0.0.3"
+  }
+}

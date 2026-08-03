@@ -15,8 +15,9 @@ The project is in the architecture and scaffold phase. No public endpoint, produ
 ## Start here
 
 - [architecture.md](./architecture.md) explains the system boundary and data flow.
-- [PLAN.md](./PLAN.md) is the execution plan for the first eleven days.
+- [SLICES.md](./SLICES.md) is the execution queue. It has no calendar-day assumptions.
 - [docs/demo-script.md](./docs/demo-script.md) defines the live failure and recovery demonstration.
+- [REQUESTED_INPUTS.md](./REQUESTED_INPUTS.md) lists the access, software, and test resources needed to run the slices.
 - [contracts/src/PrimeServerRegistry.sol](./contracts/src/PrimeServerRegistry.sol) is the first onchain coordination surface.
 
 ## Repository layout
@@ -33,4 +34,3 @@ test/        Cross-component and recovery tests
 ## Core rule
 
 Every claim about Prime Server must be marked as implemented, locally verified, deployed, or planned. A simulated provider, fake receipt, or UI label is not proof of storage or settlement.
-
