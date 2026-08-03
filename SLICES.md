@@ -111,7 +111,7 @@ Evidence: 2 erasure tests passed using `@shelby-protocol/clay-codes` 0.0.3 with 
 
 ## Slice 4: multi-provider harness
 
-Status: `pending`
+Status: `complete`
 
 Dependencies: Slice 2 and Slice 3.
 
@@ -126,6 +126,8 @@ Acceptance:
 
 - Stopping provider 2 and provider 4 produces real failed health checks.
 - Provider 1 and provider 3 still serve enough data for reconstruction.
+
+Evidence: `scripts/providers.mjs` starts and stops four isolated provider processes. The harness test stops providers 2 and 4 and confirms providers 1 and 3 remain healthy.
 
 ## Slice 5: Prime RPC upload path
 
