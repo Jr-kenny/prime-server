@@ -227,7 +227,6 @@ else
     --iam-instance-profile Name="$INSTANCE_PROFILE_NAME"
     --metadata-options HttpEndpoint=enabled,HttpTokens=required,HttpPutResponseHopLimit=2
     --block-device-mappings 'DeviceName=/dev/xvda,Ebs={VolumeSize=40,VolumeType=gp3,Encrypted=true,DeleteOnTermination=true}'
-    --credit-specification CpuCredits=standard
     --user-data "file://$user_data"
     --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=prime-server-public},{Key=Application,Value=$APP_NAME},{Key=ManagedBy,Value=prime-server-deploy},{Key=ImageTag,Value=$IMAGE_TAG},{Key=MarketType,Value=$MARKET_TYPE}]"
     --query 'Instances[0].InstanceId'
@@ -240,8 +239,6 @@ else
 fi
 
 aws ec2 wait instance-running --region "$REGION" --instance-ids "$instance_id"
-aws ec2 modify-instance-credit-specification --region "$REGION" \
-  --instance-credit-specification "InstanceId=$instance_id,CpuCredits=standard" >/dev/null
 
 public_ip="$(aws ec2 describe-instances --region "$REGION" --instance-ids "$instance_id" --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)"
 echo "Prime Server instance: $instance_id"
