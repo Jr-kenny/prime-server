@@ -160,11 +160,12 @@ export async function createProviderServer({ providerId, dataDir, host = "127.0.
 async function main() {
   const providerId = process.env.PRIME_SERVER_PROVIDER_ID || "provider-1";
   const port = Number(process.env.PRIME_SERVER_PROVIDER_PORT || 7101);
+  const host = process.env.PRIME_SERVER_PROVIDER_HOST || "127.0.0.1";
   const dataDir = process.env.PRIME_SERVER_PROVIDER_DATA_DIR || path.resolve(".prime-server", "providers", providerId);
-  const provider = await createProviderServer({ providerId, port, dataDir });
-  provider.server.listen(port, "127.0.0.1", () => {
+  const provider = await createProviderServer({ providerId, host, port, dataDir });
+  provider.server.listen(port, host, () => {
     const address = provider.server.address();
-    console.log(JSON.stringify({ event: "provider_started", providerId, address, dataDir }));
+    console.log(JSON.stringify({ event: "provider_started", providerId, address, dataDir, host }));
   });
 }
 
