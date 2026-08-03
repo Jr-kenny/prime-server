@@ -233,7 +233,7 @@ else
     --output text
   )
   if [[ "$MARKET_TYPE" == "spot" ]]; then
-    run_instance_args+=(--instance-market-options 'MarketType=spot,SpotOptions={InstanceInterruptionBehavior=stop}')
+    run_instance_args+=(--instance-market-options 'MarketType=spot,SpotOptions={SpotInstanceType=persistent,InstanceInterruptionBehavior=stop}')
   fi
   instance_id="$(aws ec2 run-instances "${run_instance_args[@]}")"
 fi
