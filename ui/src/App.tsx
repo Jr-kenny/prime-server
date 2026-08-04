@@ -50,7 +50,14 @@ export function App() {
   const [data, setData] = useState<ExplorerData>(liveMode ? emptyExplorerData : previewData);
   const [loading, setLoading] = useState(liveMode);
   const [dataError, setDataError] = useState<string>();
-  const publicClient = useMemo(() => createPublicClient({ chain: coston2, transport: http(coston2.rpcUrls.default.http[0]) }), []);
+  const publicClient = useMemo(() => createPublicClient({
+    chain: coston2,
+    transport: http(coston2.rpcUrls.default.http[0], {
+      retryCount: 4,
+      retryDelay: 750,
+      timeout: 20_000
+    })
+  }), []);
 
   const refresh = useCallback(async () => {
     if (!liveMode || !registryAddress) return;
@@ -201,7 +208,14 @@ function UploadPanel({ account, onConnect, onClose, onCompleted }: { account?: A
   const [acks, setAcks] = useState(0);
   const [placements, setPlacements] = useState<Placement[]>([]);
   const [token, setToken] = useState<string>();
-  const publicClient = useMemo(() => createPublicClient({ chain: coston2, transport: http(coston2.rpcUrls.default.http[0]) }), []);
+  const publicClient = useMemo(() => createPublicClient({
+    chain: coston2,
+    transport: http(coston2.rpcUrls.default.http[0], {
+      retryCount: 4,
+      retryDelay: 750,
+      timeout: 20_000
+    })
+  }), []);
 
   async function choose(selected?: File) {
     if (!selected) return;

@@ -242,13 +242,15 @@ export async function loadExplorerData(client: any, address: Address): Promise<E
   const fallbackFrom = latestBlock > 75_000n ? latestBlock - 75_000n : 0n;
   const fromBlock = configuredFrom ? BigInt(configuredFrom) : fallbackFrom;
   const logs: any[] = [];
-  const maxLogRange = 30n;
+  // The public Coston2 RPC is more reliable with a few bounded requests than
+  // dozens of concurrent 30-block requests.
+  const maxLogRange = 2_000n;
   const ranges: Array<{ fromBlock: bigint; toBlock: bigint }> = [];
   for (let cursor = fromBlock; cursor <= latestBlock; cursor += maxLogRange) {
     ranges.push({ fromBlock: cursor, toBlock: cursor + maxLogRange - 1n < latestBlock ? cursor + maxLogRange - 1n : latestBlock });
   }
-  for (let offset = 0; offset < ranges.length; offset += 8) {
-    const batch = await Promise.all(ranges.slice(offset, offset + 8).map((range) => client.getLogs({ address, ...range })));
+  for (let offset = 0; offset < ranges.length; offset += 4) {
+    const batch = await Promise.all(ranges.slice(offset, offset + 4).map((range) => client.getLogs({ address, ...range })));
     logs.push(...batch.flat());
   }
   const parsed = parseEventLogs({ abi: registryAbi, logs, strict: false }) as Array<any>;
