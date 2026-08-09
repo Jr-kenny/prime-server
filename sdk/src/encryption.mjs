@@ -106,7 +106,7 @@ function sealForFcc(
       storageMode,
       accessPolicy,
       recipientPublicKey: hex(recipient),
-      ciphertext: hex(encryptForFlareTee(payload, recipient)),
+      ciphertext: hex(encryptForFlareTee(payload, hex(recipient))),
       fileKeyCommitment: sha256(fileKey)
     };
   }

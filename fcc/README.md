@@ -7,9 +7,9 @@ This package is the local FCC extension core for Prime Server. It implements the
 
 The Solidity sender uses the current Flare FCC instruction shape, including `TeeInstructionParams`, extension ID discovery, random TEE selection, and `sendInstructions`. The payloads are ABI encoded so the production FCE scaffold can decode them in its TypeScript handler.
 
-The local package proves cryptographic behavior and wire compatibility. The `live/` package is prepared for the official Flare FCE TypeScript scaffold and Coston2 simulated-TEE flow. It does not claim a live key release until public extension registration, TEE version approval, machine registration, and a signed Coston2 result have completed.
+The local package proves cryptographic behavior and wire compatibility. The `live/` package contains both the key-rewrap and confidential-compute handlers for the official Flare FCE TypeScript scaffold and Coston2 simulated-TEE flow. It does not claim a live key release or compute result until public extension registration, TEE version approval, machine registration, and a signed Coston2 result have completed.
 
-`src/fce-adapter.mjs` registers the handlers with the official FCE TypeScript framework shape. The adapter injects the TEE private key and the secure ciphertext retrieval function at runtime, so those values never become public application configuration.
+`src/fce-adapter.mjs` registers the handlers with the official FCE TypeScript framework shape. The live TypeScript handler retrieves confidential ciphertext through the authenticated Prime RPC internal route, so the public developer API never exposes a compute-only download.
 
 The sender must be granted `confidentialAccessController` permission on the frozen `PrimeServerRegistry` before `recordAccessResult` can be used. The deployed verifier is the sender's result submitter and checks the official TEE result signature against the registered machine before relaying a response commitment.
 

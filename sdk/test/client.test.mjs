@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { createPrimeServerClient } from "../src/client.mjs";
 import { createErasureEngine } from "../../provider/src/erasure.mjs";
 
@@ -211,6 +212,96 @@ test("SDK binds a fresh device key to a replay-protected confidential access int
   assert.equal(authorized.requestId, `0x${"34".repeat(32)}`);
   assert.equal(writes[0].functionName, "authorizeConfidentialAccess");
   assert.equal(writes[0].args[1], signature);
+});
+
+test("SDK requests, waits for, and submits a signed confidential compute result", async () => {
+  const writes = [];
+  const requests = [];
+  const blobId = `0x${"12".repeat(32)}`;
+  const requestId = `0x${"34".repeat(32)}`;
+  const instructionId = `0x${"56".repeat(32)}`;
+  const senderAddress = "0x0000000000000000000000000000000000000010";
+  const verifierAddress = "0x0000000000000000000000000000000000000011";
+  const signature = `0x${"ab".repeat(65)}`;
+  const actionResult = {
+    id: instructionId,
+    status: 1,
+    submissionTag: "COMPUTE",
+    data: `0x${Buffer.from(JSON.stringify({
+      blobId,
+      operation: "json_field_sum",
+      requestId,
+      result: { field: "amount", sum: 25 },
+      version: 1
+    })).toString("hex")}`
+  };
+  const client = createPrimeServerClient({
+    baseUrl: "https://api.primeserver.example/prime/v1",
+    wallet: { address },
+    token: "session-token",
+    registryAddress: "0x0000000000000000000000000000000000000002",
+    chainId: 31337,
+    walletClient: {
+      account: { address },
+      async signTypedData(request) {
+        assert.equal(request.primaryType, "ConfidentialAccess");
+        return signature;
+      },
+      async writeContract(request) {
+        writes.push(request);
+        return request.functionName === "requestConfidentialCompute" ? "0xfcc-request" : `${request.functionName}-tx`;
+      }
+    },
+    publicClient: {
+      async readContract({ functionName }) {
+        if (functionName === "confidentialAccessNonces") return 0n;
+        if (functionName === "hashConfidentialAccess") return requestId;
+        throw new Error(`unexpected read ${functionName}`);
+      },
+      async waitForTransactionReceipt({ hash }) {
+        if (hash === "0xfcc-request") {
+          return {
+            status: "success",
+            logs: [{
+              address: senderAddress,
+              topics: ["0xevent", requestId, blobId, instructionId]
+            }]
+          };
+        }
+        return { status: "success", hash };
+      }
+    },
+    fetchImpl: async (url, init = {}) => {
+      requests.push({ url, init });
+      if (url.endsWith(`/fcc/result/${instructionId}`)) {
+        return new Response(JSON.stringify({ result: actionResult, signature }), { status: 200 });
+      }
+      return new Response("unexpected request", { status: 500 });
+    }
+  });
+
+  const result = await client.confidentialCompute({
+    prepared: {
+      blobId,
+      keyEnvelope: { blobId, version: 1 },
+      ciphertext: Buffer.from("encrypted ciphertext")
+    },
+    senderAddress,
+    verifierAddress,
+    operation: "json_field_sum",
+    field: "amount",
+    instructionFee: 123n
+  });
+
+  assert.equal(result.requestId, requestId);
+  assert.equal(result.instructionId, instructionId);
+  assert.deepEqual(result.result.result, { field: "amount", sum: 25 });
+  assert.equal(writes.map((request) => request.functionName).join(","), "authorizeConfidentialAccess,requestConfidentialCompute,submitResult");
+  assert.equal(writes[1].value, 123n);
+  assert.equal(writes[1].args[0], requestId);
+  assert.equal(writes[1].args[3], `0x${createHash("sha256").update("encrypted ciphertext").digest("hex")}`);
+  assert.equal(writes[2].args[2], instructionId);
+  assert.equal(requests[0].init.headers.authorization, "Bearer session-token");
 });
 
 test("SDK can retrieve ciphertext for a selected wallet through an owner-scoped route", async () => {

@@ -8,6 +8,7 @@ const docSections: DocSection[] = [
   { id: "concepts", label: "Core concepts", group: "Start here" },
   { id: "http", label: "HTTP API", group: "Build" },
   { id: "sdk", label: "JavaScript SDK", group: "Build" },
+  { id: "agents", label: "AI and agent integration", group: "Build" },
   { id: "privacy", label: "Private storage", group: "Build" },
   { id: "providers", label: "Providers and recovery", group: "Operate" },
   { id: "payments", label: "Payments and lifecycle", group: "Operate" },
@@ -92,6 +93,19 @@ await prime.uploadRegisteredBlob(encrypted, encrypted.ciphertext);
 // Providers and Prime RPC receive ciphertext only.
 // Keep encrypted.fileKey in memory until an authorized release.`;
 
+const computeCode = `const result = await prime.confidentialCompute({
+  prepared: encrypted,
+  senderAddress: "0xFccInstructionSender",
+  verifierAddress: "0xFccResultVerifier",
+  operation: "json_field_sum",
+  field: "amount"
+});
+
+console.log(result.result.result); // { sum: ... }
+// The FCC result is signed and submitted through the verifier.`;
+
+const agentCode = `GET /health\nGET /prime/v1\nGET /prime/v1/auth/challenge?address=0x...\nPOST /prime/v1/auth/session\nwallet: createBlobNamed(...)\nPUT /prime/v1/blobs/{account}/{name}\nHEAD /prime/v1/blobs/{account}/{name}`;
+
 function CodeBlock({ title, code }: { title: string; code: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -139,7 +153,7 @@ export function DocsPage() {
 
     <div className="docs-layout">
       <aside className="docs-sidebar">
-        <div className="docs-sidebar-head"><span>Documentation</span><small>9 sections</small></div>
+        <div className="docs-sidebar-head"><span>Documentation</span><small>10 sections</small></div>
         <label className="docs-search"><Icon name="search"/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search docs" aria-label="Search documentation"/></label>
         <nav className="docs-nav" aria-label="Documentation sections">
           {groups.map((group) => {
@@ -187,17 +201,27 @@ export function DocsPage() {
           <CodeBlock title="native paid storage" code={sdkCode}/>
         </section>
 
-        <section className="docs-section" id="docs-privacy">
+        <section className="docs-section" id="docs-agents">
           <SectionLabel>05 / BUILD</SectionLabel>
+          <h2>Build for developers and agents</h2>
+          <p className="docs-lead">The API is discoverable, registration-first, and explicit about its live boundaries. A developer or AI agent can inspect capabilities before it asks for a wallet signature or starts an upload.</p>
+          <div className="docs-step-grid"><div><b>01</b><strong>Discover</strong><span>Check health and GET <code>/prime/v1</code> before choosing a feature.</span></div><div><b>02</b><strong>Prepare</strong><span>Compute the commitment locally and preserve the exact bytes and name.</span></div><div><b>03</b><strong>Approve</strong><span>Show the owner the chain write and payment before asking for a signature.</span></div><div><b>04</b><strong>Verify</strong><span>Read HEAD, content, provider acknowledgements, and registry events.</span></div></div>
+          <CodeBlock title="safe agent sequence" code={agentCode}/>
+          <div className="docs-callout"><Icon name="shield"/><div><strong>Agents must preserve the wallet boundary</strong><p>API authentication grants account-scoped use. It cannot create ownership, approve payment, or replace the registry transaction. OpenAPI and the full agent guide are available in the repository docs.</p></div></div>
+        </section>
+
+        <section className="docs-section" id="docs-privacy">
+          <SectionLabel>06 / BUILD</SectionLabel>
           <h2>Private and confidential storage</h2>
           <p className="docs-lead">Privacy is a policy on the same storage network. Encrypt in the client before Clay encoding. Prime RPC and providers receive ciphertext, while Flare stores commitments to the policy, envelope, and metadata.</p>
           <div className="docs-mode-grid"><div><span className="docs-mode-pill public">PUBLIC</span><strong>Readable bytes</strong><p>Normal owner-scoped storage with visible blob metadata and standard retrieval.</p></div><div><span className="docs-mode-pill private">PRIVATE</span><strong>Owner-controlled decryption</strong><p>Encrypted bytes are stored. An authorized wallet can request a key package for its current device.</p></div><div><span className="docs-mode-pill confidential">CONFIDENTIAL</span><strong>Compute-only access</strong><p>Raw downloads are blocked. Approved operations run through the attested FCC boundary when deployed.</p></div></div>
           <CodeBlock title="encrypt before registration" code={privateCode}/>
-          <div className="docs-callout warning"><Icon name="shield"/><div><strong>Attestation boundary</strong><p>Local envelope tests prove payload binding. They do not prove a live TEE result. Describe FCC access as attested, verifiable, and trust-minimized only after the extension, approved code identity, machine registration, and result verification are live.</p></div></div>
+          <CodeBlock title="run an approved confidential operation" code={computeCode}/>
+          <div className="docs-callout warning"><Icon name="shield"/><div><strong>Live FCC configuration</strong><p>The application sends only the sealed envelope, operation, and ciphertext commitment. A live signed result still requires the official Coston2 proxy, indexer credentials, simulated-TEE registration, and configured sender and verifier contracts.</p></div></div>
         </section>
 
         <section className="docs-section" id="docs-providers">
-          <SectionLabel>06 / OPERATE</SectionLabel>
+          <SectionLabel>07 / OPERATE</SectionLabel>
           <h2>Providers and recovery</h2>
           <p className="docs-lead">Providers are independent storage operators. The coordinator assigns shards and verifies signed acknowledgements, while the registry records the placement and recovery lifecycle.</p>
           <div className="docs-flow"><div><b>1</b><strong>Assign</strong><span>Each blob gets four shard placements.</span></div><i/><div><b>2</b><strong>Acknowledge</strong><span>Providers return a commitment and size proof.</span></div><i/><div><b>3</b><strong>Detect failure</strong><span>Health or read failure starts recovery.</span></div><i/><div><b>4</b><strong>Rebuild</strong><span>Two surviving shards reconstruct the missing shard.</span></div></div>
@@ -205,7 +229,7 @@ export function DocsPage() {
         </section>
 
         <section className="docs-section" id="docs-payments">
-          <SectionLabel>07 / OPERATE</SectionLabel>
+          <SectionLabel>08 / OPERATE</SectionLabel>
           <h2>Payments and lifecycle</h2>
           <p className="docs-lead">Native Coston2 payment is part of the registration transaction. The registry quotes the total, provider pool, protocol fee, and per-shard reward before the wallet submits the paid record.</p>
           <div className="docs-payment-strip"><div><span>01</span><strong>Quote</strong><p>Size, shards, storage mode, and expiry produce a bound quote.</p></div><div><span>02</span><strong>Escrow</strong><p>The wallet pays and registers in one Flare transaction.</p></div><div><span>03</span><strong>Settle</strong><p>Finalization unlocks immediate rewards. The reserve waits until expiry.</p></div></div>
@@ -214,17 +238,17 @@ export function DocsPage() {
         </section>
 
         <section className="docs-section" id="docs-contract">
-          <SectionLabel>08 / REFERENCE</SectionLabel>
+          <SectionLabel>09 / REFERENCE</SectionLabel>
           <h2>Contract reference</h2>
           <p className="docs-lead">The Prime Server Registry is the authoritative record for ownership, commitments, placement, policy, payment state, and lifecycle events.</p>
           <div className="docs-table-wrap"><table className="docs-table"><thead><tr><th>Function or field</th><th>What it establishes</th><th>Caller</th></tr></thead><tbody><tr><td><code>createBlobNamed</code></td><td>Direct wallet-owned registration</td><td>User wallet</td></tr><tr><td><code>createBlobNamedPaid</code></td><td>Native payment plus registration</td><td>User wallet</td></tr><tr><td><code>blobs(blobId)</code></td><td>Owner, commitment, size, shards, status, expiry</td><td>Anyone</td></tr><tr><td><code>getBlobPolicy(blobId)</code></td><td>Storage mode, access policy, and privacy commitments</td><td>Anyone</td></tr><tr><td><code>placement(blobId, shard)</code></td><td>Current provider assignment</td><td>Anyone</td></tr><tr><td><code>acknowledgements(...)</code></td><td>Provider commitment, size, and acknowledgement state</td><td>Anyone</td></tr><tr><td><code>BlobFinalized</code></td><td>Storage reached active finalization</td><td>Registry event</td></tr></tbody></table></div>
         </section>
 
         <section className="docs-section" id="docs-limits">
-          <SectionLabel>09 / REFERENCE</SectionLabel>
+          <SectionLabel>10 / REFERENCE</SectionLabel>
           <h2>Limits and current status</h2>
           <div className="docs-status-grid"><div><strong>2 MiB</strong><span>Current first chunkset capacity</span></div><div><strong>1 MiB</strong><span>Chunk size for the four-provider profile</span></div><div><strong>2 of 4</strong><span>Data shards required for reconstruction</span></div><div><strong>114</strong><span>Flare Coston2 chain ID</span></div></div>
-          <div className="docs-status-list"><div><span className="status-dot live"/><div><strong>Available now</strong><p>Registration-first public blobs, native paid registration, wallet sessions, listing, full downloads, HTTP ranges, provider acknowledgements, and live recovery proofs.</p></div></div><div><span className="status-dot staged"/><div><strong>In integration</strong><p>Client encryption, policy commitments, FCC envelopes, and selected-wallet ciphertext retrieval are implemented as separate privacy surfaces.</p></div></div><div><span className="status-dot planned"/><div><strong>Follow-up slices</strong><p>Multipart uploads, S3 compatibility, efficient shard-range reads, XRP settlement, and live FCC compute require their own production proof.</p></div></div></div>
+          <div className="docs-status-list"><div><span className="status-dot live"/><div><strong>Available now</strong><p>Registration-first public blobs, native paid registration, wallet sessions, listing, full downloads, HTTP ranges, provider acknowledgements, live recovery proofs, and the no-sample explorer.</p></div></div><div><span className="status-dot staged"/><div><strong>Ready for FCC configuration</strong><p>Encrypted confidential preparation, compute-only policy registration, the approved operation set, live proxy polling, and signed result submission are implemented.</p></div></div><div><span className="status-dot planned"/><div><strong>Follow-up proof</strong><p>The official Coston2 indexer, simulated-TEE machine registration, and a live confidential compute evidence run still need to be completed before the result is called live.</p></div></div></div>
           <div className="docs-footer-note"><Icon name="file"/><span>These docs describe the Prime Server surface and its current proof boundary. The repository source remains the implementation reference.</span></div>
         </section>
       </article>

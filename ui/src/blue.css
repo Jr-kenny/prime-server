@@ -318,3 +318,96 @@ nav button>i {
   background: #102044 !important;
   color: var(--accent-blue-bright) !important;
 }
+
+.storage-mode-switch {
+  background: #f7faff;
+  border-color: var(--accent-blue-border);
+}
+
+.storage-mode-switch button {
+  color: #6f82a2;
+}
+
+.storage-mode-switch button:hover {
+  background: #eef4ff;
+}
+
+.storage-mode-switch button.active {
+  background: #e8f0ff;
+  border-color: #9bbcff;
+  color: #244d97;
+}
+
+.storage-mode-switch button>span {
+  background: #eef4ff;
+  color: #7893bf;
+}
+
+.storage-mode-switch button.active>span {
+  background: #d4e3ff;
+  color: var(--accent-blue);
+}
+
+.storage-mode-switch small {
+  color: #8294b2;
+}
+
+.storage-mode-switch button.active small {
+  color: #5275b4;
+}
+
+.system-rail {
+  background: #fbfcff;
+  border-color: #e2eaff;
+}
+
+.system-rail>div>svg {
+  color: var(--accent-blue);
+}
+
+.system-rail small {
+  color: #7c91b3;
+}
+
+.system-rail strong {
+  color: #294778;
+}
+
+.system-rail>i {
+  background: #dce6f8;
+}
+
+.interactive-row:hover {
+  background: #f5f8ff;
+}
+
+.interactive-row:focus {
+  outline-color: var(--accent-blue);
+}
+
+.provider-detail-copy {
+  color: #6f7f99;
+}
+
+@media (max-width: 900px) {
+  .system-rail {
+    gap: 12px;
+    padding: 0 20px;
+    overflow-x: auto;
+  }
+
+  .system-rail>div {
+    min-width: 105px;
+  }
+}
+
+@media (max-width: 760px) {
+  .system-rail {
+    padding: 0 16px;
+  }
+
+  .system-rail>div:nth-of-type(n+3),
+  .system-rail>i:nth-of-type(n+3) {
+    display: none;
+  }
+}

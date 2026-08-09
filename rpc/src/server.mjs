@@ -271,6 +271,78 @@ function applyCorsHeaders(response, origin) {
   response.setHeader("access-control-max-age", "600");
 }
 
+function normalizeFccProxyUrl(value) {
+  return String(value || "").replace(/\/$/, "");
+}
+
+async function handleFccProxyRequest({ request, response, requestUrl, authManager, fccProxyUrl }) {
+  const prefix = `${DEVELOPER_API_PREFIX}/fcc`;
+  if (!requestUrl.pathname.startsWith(`${prefix}/`)) return false;
+  if (request.method !== "GET") throw new GatewayError(405, "method not allowed");
+  requireSession(request, authManager);
+  const proxyUrl = normalizeFccProxyUrl(fccProxyUrl);
+  if (!proxyUrl) throw new GatewayError(503, "FCC proxy is not configured");
+
+  if (requestUrl.pathname === `${prefix}/info`) {
+    const upstream = await fetch(`${proxyUrl}/info`);
+    if (!upstream.ok) throw new GatewayError(502, `FCC proxy info returned ${upstream.status}`);
+    json(response, 200, await upstream.json());
+    return true;
+  }
+
+  const resultMatch = requestUrl.pathname.match(new RegExp(`^${prefix.replaceAll("/", "\\/")}/result/(0x)?([a-fA-F0-9]{64})$`));
+  if (resultMatch) {
+    const instructionId = `0x${resultMatch[2]}`;
+    const upstream = await fetch(`${proxyUrl}/action/result/${instructionId}`);
+    if (upstream.status === 404 || upstream.status === 202) {
+      json(response, 202, { status: "pending", instructionId });
+      return true;
+    }
+    if (!upstream.ok) throw new GatewayError(502, `FCC proxy result returned ${upstream.status}`);
+    json(response, 200, await upstream.json());
+    return true;
+  }
+
+  json(response, 404, { error: "FCC route not found" });
+  return true;
+}
+
+async function handleFccInternalRequest({ request, response, requestUrl, registry, providers, erasureEngine, fccInternalToken }) {
+  const prefix = "/internal/fcc/blobs/";
+  if (!requestUrl.pathname.startsWith(prefix)) return false;
+  if (request.method !== "GET") throw new GatewayError(405, "method not allowed");
+  if (!fccInternalToken) throw new GatewayError(404, "FCC internal storage route is not configured");
+  if (String(request.headers["x-prime-fcc-token"] || "") !== fccInternalToken) {
+    throw new GatewayError(401, "FCC internal storage authorization failed");
+  }
+
+  const match = requestUrl.pathname.match(/^\/internal\/fcc\/blobs\/(0x)?([a-fA-F0-9]{64})\/ciphertext$/);
+  if (!match) {
+    json(response, 404, { error: "FCC internal route not found" });
+    return true;
+  }
+  const blobId = `0x${match[2]}`;
+  const blob = await registry.getBlob(blobId);
+  if (!blob) throw new GatewayError(404, "blob not found");
+  if (blob.policy?.storageMode !== 2 && blob.policy?.storageModeName !== "confidential") {
+    throw new GatewayError(403, "FCC ciphertext route requires confidential storage");
+  }
+  if (blob.policy?.accessPolicy !== 2 && blob.policy?.accessPolicyName !== "compute_only") {
+    throw new GatewayError(403, "FCC ciphertext route requires compute-only access");
+  }
+  const result = await readBlob({ blobId, providers, registry, erasureEngine });
+  response.writeHead(200, {
+    "content-type": "application/octet-stream",
+    "content-length": result.bytes.length,
+    etag: `"${result.contentHash}"`,
+    "x-prime-blob-id": blobId,
+    "x-prime-recovered": String(result.recovered),
+    "x-prime-missing-shards": result.missingShards.join(",")
+  });
+  response.end(result.bytes);
+  return true;
+}
+
 async function handleDeveloperRequest({
   request,
   response,
@@ -280,7 +352,9 @@ async function handleDeveloperRequest({
   erasureEngine,
   objectStore,
   authManager,
-  publicBaseUrl
+  publicBaseUrl,
+  fccProxyUrl,
+  fccComputeEnabled
 }) {
   if (!requestUrl.pathname.startsWith(DEVELOPER_API_PREFIX)) return false;
   if (!objectStore) throw new GatewayError(503, "developer API object store is not configured");
@@ -310,10 +384,14 @@ async function handleDeveloperRequest({
         crossChainPayments: false,
         encryptedStorage: typeof registry.getBlobPolicy === "function",
         confidentialAccessAuthorization: typeof registry.authorizeConfidentialAccess === "function",
-        confidentialCompute: false
+        confidentialCompute: Boolean(fccComputeEnabled)
       }
     });
     return true;
+  }
+
+  if (requestUrl.pathname.startsWith(`${DEVELOPER_API_PREFIX}/fcc/`)) {
+    return handleFccProxyRequest({ request, response, requestUrl, authManager, fccProxyUrl });
   }
 
   if (request.method === "GET" && requestUrl.pathname === `${DEVELOPER_API_PREFIX}/auth/challenge`) {
@@ -742,7 +820,9 @@ export async function createPrimeRpcServer({
   objectStore,
   authManager,
   publicBaseUrl = "",
-  corsOrigin = "*"
+  corsOrigin = "*",
+  fccProxyUrl = "",
+  fccInternalToken = ""
 } = {}) {
   if (!providers?.length) throw new Error("providers are required");
   if (!registry) throw new Error("registry is required");
@@ -760,6 +840,18 @@ export async function createPrimeRpcServer({
   const server = createServer(async (req, res) => {
     try {
       const requestUrl = new URL(req.url || "/", "http://127.0.0.1");
+      if (requestUrl.pathname.startsWith("/internal/fcc/")) {
+        const handled = await handleFccInternalRequest({
+          request: req,
+          response: res,
+          requestUrl,
+          registry,
+          providers,
+          erasureEngine: engine,
+          fccInternalToken
+        });
+        if (handled) return;
+      }
       if (requestUrl.pathname.startsWith(DEVELOPER_API_PREFIX)) {
         applyCorsHeaders(res, corsOrigin);
         if (req.method === "OPTIONS") {
@@ -776,7 +868,9 @@ export async function createPrimeRpcServer({
           erasureEngine: engine,
           objectStore,
           authManager,
-          publicBaseUrl
+          publicBaseUrl,
+          fccProxyUrl,
+          fccComputeEnabled: Boolean(fccProxyUrl && fccInternalToken)
         });
         return;
       }

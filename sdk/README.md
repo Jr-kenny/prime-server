@@ -45,6 +45,8 @@ Native payment quotes include the requested expiry duration. Ten percent of the 
 
 For private storage, call `prepareEncryptedBlob` with the FCC public key. It returns `ciphertext`, an FCC-sealed `keyEnvelope`, and policy commitments. The onchain name is an opaque `private/<blobId>` value. The original filename, content type, and supplied metadata are sealed inside the envelope. Keep `fileKey` in memory only. Upload `encrypted.ciphertext` through the paid registration flow. The provider and RPC never receive the plaintext file key.
 
+For a confidential blob, call `confidentialCompute` after the ciphertext upload. It authorizes a compute-only access intent, sends the operation and ciphertext commitment to `PrimeServerInstructionSender`, polls the configured FCC result proxy, and submits the signed result through `PrimeServerFccResultVerifier`. The supported local operations are `sha256`, `json_field_count`, and `json_field_sum`. A live result requires the official Coston2 FCC proxy and simulated-TEE registration.
+
 An authorized selected wallet can retrieve ciphertext without pretending to own the namespace:
 
 ```js

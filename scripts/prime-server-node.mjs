@@ -63,6 +63,21 @@ async function waitForHealth(url, timeoutMs = 60_000) {
   throw new Error(`provider did not become healthy at ${url}: ${lastError?.message || "timeout"}`);
 }
 
+function normalizeProviderUrl(value, name) {
+  const normalized = String(value || "").trim().replace(/\/$/, "");
+  if (!normalized) return "";
+  let parsed;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    throw new Error(`${name} must be an absolute HTTP(S) URL`);
+  }
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error(`${name} must use HTTP or HTTPS`);
+  }
+  return normalized;
+}
+
 function startProvider({ providerId, port, dataDir }) {
   const child = spawn(process.execPath, [providerServerPath], {
     cwd: repositoryRoot,
@@ -95,6 +110,7 @@ function startProvider({ providerId, port, dataDir }) {
 
 async function stopProviders(providers) {
   await Promise.all(providers.map(async ({ child }) => {
+    if (!child) return;
     if (child.exitCode !== null || child.signalCode !== null) return;
     await new Promise((resolve) => {
       const finish = () => {
@@ -135,6 +151,8 @@ async function main() {
   const pollIntervalMs = Number(config.PRIME_SERVER_EVENT_POLL_INTERVAL_MS || 15_000);
   const publicBaseUrl = (config.PRIME_SERVER_PUBLIC_BASE_URL || "").replace(/\/$/, "");
   const corsOrigin = config.PRIME_SERVER_CORS_ORIGIN || "*";
+  const fccProxyUrl = (config.PRIME_SERVER_FCC_PROXY_URL || "").replace(/\/$/, "");
+  const fccInternalToken = config.PRIME_SERVER_FCC_INTERNAL_TOKEN || "";
 
   if (chainId !== 114) throw new Error(`expected Coston2 chain ID 114, got ${chainId}`);
   if (!Number.isSafeInteger(rpcPort) || rpcPort < 1 || rpcPort > 65535) throw new Error("invalid Prime RPC port");
@@ -152,11 +170,14 @@ async function main() {
   try {
     for (let index = 0; index < providerIds.length; index += 1) {
       const providerId = providerIds[index];
-      const provider = startProvider({
-        providerId,
-        port: providerBasePort + index,
-        dataDir: path.join(dataRoot, providerId)
-      });
+      const providerUrl = normalizeProviderUrl(config[`PRIME_SERVER_PROVIDER_${index + 1}_URL`], `PRIME_SERVER_PROVIDER_${index + 1}_URL`);
+      const provider = providerUrl
+        ? { providerId, url: providerUrl, remote: true, child: null }
+        : startProvider({
+          providerId,
+          port: providerBasePort + index,
+          dataDir: path.join(dataRoot, providerId)
+        });
       providers.push(provider);
       await waitForHealth(provider.url);
     }
@@ -208,7 +229,9 @@ async function main() {
       objectStore: operationalStore,
       authManager,
       publicBaseUrl,
-      corsOrigin
+      corsOrigin,
+      fccProxyUrl,
+      fccInternalToken
     });
     await new Promise((resolve) => rpc.server.listen(rpcPort, rpcHost, resolve));
 
@@ -233,6 +256,7 @@ async function main() {
       rpcHost,
       rpcPort,
       providerCount: providers.length,
+      providers: providers.map(({ providerId, url, remote }) => ({ providerId, url, remote: Boolean(remote) })),
       dataRoot,
       operationalStatePath,
       bytecodeBytes: Math.floor((bytecode.length - 2) / 2)

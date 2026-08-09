@@ -14,8 +14,7 @@ export type PreparedBlob = {
   chunkCommitments: string[];
 };
 
-export async function prepareFile(file: File, name: string, expiresAt: number): Promise<PreparedBlob> {
-  const bytes = new Uint8Array(await file.arrayBuffer());
+export async function prepareBytes(bytes: Uint8Array, name: string, expiresAt: number, blobId = bytesToHex(crypto.getRandomValues(new Uint8Array(32)))): Promise<PreparedBlob> {
   if (!name || new TextEncoder().encode(name).length > 1024 || name.startsWith("/") || name.endsWith("/")) throw new Error("Enter a valid blob name");
   if (!bytes.length) throw new Error("The file is empty");
   const capacity = BLOB_CONFIG.k * BLOB_CONFIG.chunkSizeBytes;
@@ -27,12 +26,16 @@ export async function prepareFile(file: File, name: string, expiresAt: number): 
   const commitments = await Promise.all(encoded.chunks.map((chunk: Uint8Array) => sha256(new Uint8Array(chunk))));
   const clay = encoder.getMerkleCommitment();
   return {
-    blobId: bytesToHex(crypto.getRandomValues(new Uint8Array(32))), name,
+    blobId: blobId as `0x${string}`, name,
     commitment: bytesToHex(new Uint8Array(clay.chunksetRoot)), size: bytes.length,
     chunkSize: BLOB_CONFIG.chunkSizeBytes, dataShards: BLOB_CONFIG.k,
     totalShards: BLOB_CONFIG.n, expiresAt,
     chunkCommitments: commitments.map(commitment => bytesToHex(commitment))
   };
+}
+
+export async function prepareFile(file: File, name: string, expiresAt: number): Promise<PreparedBlob> {
+  return prepareBytes(new Uint8Array(await file.arrayBuffer()), name, expiresAt);
 }
 
 export function formatBytes(bytes: number) {

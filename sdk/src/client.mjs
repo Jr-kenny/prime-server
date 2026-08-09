@@ -1,7 +1,38 @@
+import { createHash } from "node:crypto";
 import { blobBytes, prepareBlob as prepareBlobInput } from "./prepare.mjs";
 import { createDeviceKeyPair, deviceKeyCommitment, prepareEncryptedBlob as prepareEncryptedBlobInput } from "./encryption.mjs";
-import { normalizePolicy, resolveStorageMode, ZERO_BYTES32 } from "./policy.mjs";
+import { canonicalJson, normalizePolicy, resolveStorageMode, ZERO_BYTES32 } from "./policy.mjs";
 import { primeServerRegistryAbi } from "./registry-abi.mjs";
+
+const primeServerFccSenderAbi = [
+  {
+    type: "function",
+    name: "requestConfidentialCompute",
+    stateMutability: "payable",
+    inputs: [
+      { name: "requestId", type: "bytes32" },
+      { name: "keyEnvelope", type: "bytes" },
+      { name: "computeSpec", type: "bytes" },
+      { name: "inputCommitment", type: "bytes32" }
+    ],
+    outputs: [{ name: "instructionId", type: "bytes32" }]
+  }
+];
+
+const primeServerFccVerifierAbi = [{
+  type: "function",
+  name: "submitResult",
+  stateMutability: "nonpayable",
+  inputs: [
+    { name: "requestId", type: "bytes32" },
+    { name: "resultData", type: "bytes" },
+    { name: "actionId", type: "bytes32" },
+    { name: "submissionTag", type: "string" },
+    { name: "status", type: "uint8" },
+    { name: "signature", type: "bytes" }
+  ],
+  outputs: []
+}];
 
 function encodePath(value) {
   return encodeURIComponent(String(value));
@@ -24,6 +55,39 @@ function walletAddress(wallet) {
 
 function tupleValue(raw, name, index) {
   return raw?.[name] ?? raw?.[index];
+}
+
+function bytesHex(value) {
+  return `0x${Buffer.from(value).toString("hex")}`;
+}
+
+function sha256Hex(value) {
+  return `0x${createHash("sha256").update(value).digest("hex")}`;
+}
+
+function decodeJsonBytes(value, field) {
+  try {
+    return JSON.parse(Buffer.from(String(value).replace(/^0x/, ""), "hex").toString("utf8"));
+  } catch (error) {
+    throw new Error(`${field} is not valid JSON bytes: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function instructionIdFromReceipt(receipt, requestId, senderAddress) {
+  for (const log of receipt?.logs || []) {
+    if (String(log.address || "").toLowerCase() !== String(senderAddress).toLowerCase()) continue;
+    const topics = log.topics || [];
+    if (topics.length >= 4 && String(topics[1]).toLowerCase() === String(requestId).toLowerCase()) return topics[3];
+  }
+  throw new Error("FCC instruction event was not found in the sender receipt");
+}
+
+function actionResultFromProxy(proxyResponse) {
+  const actionResult = proxyResponse?.result || proxyResponse?.Result;
+  const signature = proxyResponse?.signature || proxyResponse?.Signature;
+  if (!actionResult || !signature) throw new Error("FCC proxy result did not include a signed ActionResult");
+  if (Number(actionResult.status) !== 1) throw new Error(`FCC action failed with status ${actionResult.status}`);
+  return { actionResult, signature };
 }
 
 function normalizeQuote(raw) {
@@ -220,6 +284,102 @@ export class PrimeServerClient {
     const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
     if (receipt?.status && receipt.status !== "success") throw new Error("confidential access authorization transaction failed");
     return { ...prepared, requestId: digest, hash, receipt };
+  }
+
+  async fccInfo() {
+    return (await this.request("/fcc/info", { auth: true })).json();
+  }
+
+  async waitForFccActionResult(instructionId, { timeoutMs = 180_000, pollMs = 2_000 } = {}) {
+    if (!this.token) await this.authenticate();
+    const deadline = Date.now() + timeoutMs;
+    let lastStatus = null;
+    while (Date.now() < deadline) {
+      const response = await this.fetch(`${this.baseUrl}/fcc/result/${encodePath(instructionId)}`, {
+        headers: { authorization: `Bearer ${this.token}` }
+      });
+      lastStatus = response.status;
+      if (response.ok) return response.json();
+      if (response.status !== 202 && response.status !== 404) throw new PrimeServerError(await readError(response), response.status, response);
+      await new Promise((resolve) => setTimeout(resolve, pollMs));
+    }
+    throw new Error(`timed out waiting for FCC result for ${instructionId}, last HTTP status ${lastStatus}`);
+  }
+
+  async confidentialCompute({
+    prepared,
+    senderAddress,
+    verifierAddress,
+    operation = "sha256",
+    field,
+    inputCommitment,
+    instructionFee = 1_000_000n,
+    accessDeadline,
+    timeoutMs = 180_000
+  } = {}) {
+    if (!prepared?.blobId || !prepared?.keyEnvelope || !prepared?.ciphertext) throw new Error("prepared confidential blob is incomplete");
+    if (!senderAddress || !verifierAddress) throw new Error("senderAddress and verifierAddress are required for confidential compute");
+    if (!this.walletClient || !this.publicClient || !this.registryAddress) {
+      throw new Error("walletClient, publicClient, and registryAddress are required for confidential compute");
+    }
+
+    const device = this.createDeviceKeyPair();
+    const access = await this.authorizeConfidentialAccess({
+      blobId: prepared.blobId,
+      devicePublicKey: device.publicKey,
+      purpose: "compute",
+      deadline: accessDeadline
+    });
+    const computeSpec = { operation: String(operation).toLowerCase() };
+    if (field) computeSpec.field = String(field);
+    const computeSpecBytes = Buffer.from(canonicalJson(computeSpec), "utf8");
+    const ciphertext = Buffer.from(prepared.ciphertext);
+    const resolvedInputCommitment = inputCommitment || sha256Hex(ciphertext);
+    const keyEnvelopeBytes = Buffer.from(canonicalJson(prepared.keyEnvelope), "utf8");
+    const account = this.walletClient.account || this.wallet?.account || walletAddress(this.wallet || this.walletClient);
+    const requestHash = await this.walletClient.writeContract({
+      address: senderAddress,
+      abi: primeServerFccSenderAbi,
+      functionName: "requestConfidentialCompute",
+      account,
+      args: [access.requestId, bytesHex(keyEnvelopeBytes), bytesHex(computeSpecBytes), resolvedInputCommitment],
+      value: BigInt(instructionFee)
+    });
+    const requestReceipt = await this.publicClient.waitForTransactionReceipt({ hash: requestHash });
+    if (requestReceipt?.status && requestReceipt.status !== "success") throw new Error("FCC compute request transaction failed");
+    const instructionId = instructionIdFromReceipt(requestReceipt, access.requestId, senderAddress);
+    const proxyResponse = await this.waitForFccActionResult(instructionId, { timeoutMs });
+    const { actionResult, signature } = actionResultFromProxy(proxyResponse);
+    if (String(actionResult.id).toLowerCase() !== String(instructionId).toLowerCase()) throw new Error("FCC result instruction binding mismatch");
+    const result = decodeJsonBytes(actionResult.data, "FCC result data");
+    if (String(result.requestId).toLowerCase() !== String(access.requestId).toLowerCase()) throw new Error("FCC result request binding mismatch");
+    if (String(result.blobId).toLowerCase() !== String(prepared.blobId).toLowerCase()) throw new Error("FCC result blob binding mismatch");
+
+    const submitHash = await this.walletClient.writeContract({
+      address: verifierAddress,
+      abi: primeServerFccVerifierAbi,
+      functionName: "submitResult",
+      account,
+      args: [
+        access.requestId,
+        actionResult.data,
+        actionResult.id,
+        actionResult.submissionTag,
+        Number(actionResult.status),
+        signature
+      ]
+    });
+    const submitReceipt = await this.publicClient.waitForTransactionReceipt({ hash: submitHash });
+    if (submitReceipt?.status && submitReceipt.status !== "success") throw new Error("FCC result verification transaction failed");
+    return {
+      requestId: access.requestId,
+      instructionId,
+      requestHash,
+      submitHash,
+      actionResult,
+      result,
+      access
+    };
   }
 
   async registerBlob(prepared) {

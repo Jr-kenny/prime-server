@@ -6,7 +6,7 @@
 
 Prime Server gives applications a storage endpoint backed by wallet-signed registrations, independent provider processes, erasure-coded shards, and an onchain recovery record.
 
-[Architecture](./architecture.md) · [Developer API](./docs/developer-api.md) · [Explorer UI](./ui/) · [Coston2 registry](https://coston2-explorer.flare.network/address/0x5E43cCe14cf17c96aF6d7ADF47592f5118Ab05E1)
+[Architecture](./architecture.md) · [Developer API](./docs/developer-api.md) · [OpenAPI](./docs/openapi.yaml) · [Agent integration](./docs/agent-integration.md) · [Explorer UI](./ui/) · [Coston2 registry](https://coston2-explorer.flare.network/address/0x5E43cCe14cf17c96aF6d7ADF47592f5118Ab05E1)
 
 ![Flare](https://img.shields.io/badge/Flare-Coston2-2563eb?style=flat-square&logo=ethereum&logoColor=white)
 ![Storage](https://img.shields.io/badge/Storage-2--of--4-3978e8?style=flat-square)
@@ -71,6 +71,8 @@ PUT  /prime/v1/blobs/:account/:name
 GET  /prime/v1/blobs/:account/:name
 HEAD /prime/v1/blobs/:account/:name
 GET  /prime/v1/blobs/:account
+GET  /prime/v1/fcc/info
+GET  /prime/v1/fcc/result/:instructionId
 ```
 
 The HTTP session protects API access and upload bandwidth. It does not create the blob and it does not decide who owns it.
@@ -102,7 +104,79 @@ await prime.uploadRegisteredBlob(prepared, bytes, {
 });
 ```
 
-The same client supports native paid registration, owner-scoped listing, `HEAD` metadata, full reads, byte ranges, encrypted preparation, device-bound access requests, and selected-wallet ciphertext retrieval.
+The same client supports native paid registration, owner-scoped listing, `HEAD` metadata, full reads, byte ranges, encrypted preparation, device-bound access requests, selected-wallet ciphertext retrieval, and a signed confidential-compute request that submits the result through the onchain verifier.
+
+## Agents and application integrations
+
+Any application, script, or AI agent can discover the service from the same
+HTTP surface. The capability response tells the client which features are
+available before it starts a workflow:
+
+```text
+GET /health
+GET /prime/v1
+```
+
+The public agent endpoints are:
+
+| Endpoint | Use |
+| --- | --- |
+| `GET /prime/v1/auth/challenge?address=0x...` | Create a short-lived wallet challenge |
+| `POST /prime/v1/auth/session` | Exchange the signed challenge for an API session |
+| `GET /prime/v1/account` | Confirm the authenticated wallet |
+| `PUT /prime/v1/blobs/{account}/{name}` | Upload the exact bytes for a registered blob |
+| `GET /prime/v1/blobs/{account}/{name}` | Read a public or authorized blob |
+| `HEAD /prime/v1/blobs/{account}/{name}` | Read blob metadata without downloading bytes |
+| `GET /prime/v1/blobs/{account}` | List the wallet's active blobs |
+| `GET /prime/v1/fcc/info` | Inspect the configured confidential-compute service |
+| `GET /prime/v1/fcc/result/{instructionId}` | Poll an authenticated compute result |
+
+The integration sequence is registration first, upload second:
+
+1. The client fetches `/prime/v1` and checks `registrationRequired`, privacy, payment, and confidential-compute capabilities.
+2. The application prepares the bytes locally with `@prime-server/sdk`, or an equivalent Clay-compatible implementation.
+3. The owner wallet reviews and signs `createBlobNamed` or `createBlobNamedPaid` on Flare Coston2.
+4. The application signs the API challenge and sends the session token as `Authorization: Bearer <token>`.
+5. The application uploads the unchanged bytes with the prepared blob headers.
+6. The application checks the returned object, `HEAD` metadata, and registry events before treating the blob as complete.
+
+The wallet transaction is the ownership proof. An agent or API session cannot
+create ownership on behalf of a user, and an agent should request approval
+before submitting a registration or payment.
+
+After the wallet transaction is confirmed, a non-JavaScript application can
+upload through the HTTP API directly:
+
+```bash
+curl -X PUT \
+  "https://api.primeserver.example/prime/v1/blobs/0xYourWallet/reports/hello.txt" \
+  -H "Authorization: Bearer $PRIME_TOKEN" \
+  -H "Content-Type: text/plain" \
+  -H "x-prime-blob-id: 0xRegisteredBlobId" \
+  -H "x-prime-commitment: 0xRegisteredCommitment" \
+  -H "x-prime-chunk-size: 1048576" \
+  -H "x-prime-data-shards: 2" \
+  -H "x-prime-total-shards: 4" \
+  -H "x-prime-expires-at: 1780000000" \
+  --data-binary @hello.txt
+```
+
+For JavaScript and TypeScript applications, the SDK handles challenge
+authentication, local preparation, registration checks, upload headers, list,
+metadata, range reads, private storage, and confidential-compute polling:
+
+```js
+await prime.authenticate();
+const result = await prime.put("reports/hello.txt", bytes, {
+  expirationSeconds: 86_400,
+  contentType: "text/plain"
+});
+```
+
+Use [docs/agent-integration.md](./docs/agent-integration.md) for the full
+agent sequence, privacy rules, provider checks, error handling, and FCC
+boundaries. Use [docs/openapi.yaml](./docs/openapi.yaml) to generate clients
+for other languages and tools.
 
 ## Private storage
 
@@ -127,7 +201,7 @@ The private flow uses an opaque onchain name. The original filename and metadata
 
 The same wallet can request ciphertext from another device. The device creates a temporary key pair, the wallet signs a fresh access intent, and an FCC controller can rewrap the file key to that device after the live extension and attestation path is configured. The browser performs the final decryption.
 
-Confidential storage uses the same encrypted path with `compute_only` access. Raw downloads are rejected for that mode. A local FCC extension can prove the key-package and compute payload behavior, but live TEE attestation and confidential compute remain separate deployment work.
+Confidential storage uses the same encrypted path with `compute_only` access. Raw downloads are rejected for that mode. The UI's Private Compute surface supports SHA-256, JSON field counts, and JSON field sums. The FCC extension decrypts the sealed key envelope and ciphertext inside the TEE process, then returns only the approved result and response commitment.
 
 ## The live proof
 
@@ -157,15 +231,25 @@ The React explorer is the product surface for the protocol. It exposes:
 - chain events for registration, placement, acknowledgement, payment, recovery, and finalization;
 - provider operators, endpoints, registration blocks, and status;
 - recovery topology and failed-shard activity;
-- per-blob placement details and transaction links;
-- an in-app developer documentation page with the HTTP API, SDK, privacy, provider, payment, contract, and limit references.
+- clickable blob records with placement details, policy, acknowledgements, and transaction links;
+- clickable provider records with the advertised endpoint and separate health inspection;
+- a compact system rail for network, registry, provider, and Prime RPC state;
+- a Private Compute surface for encrypted JSON analysis through FCC;
+- an in-app developer documentation page with the HTTP API, SDK, privacy, provider, payment, contract, agent, and limit references.
 
-The UI environment is configured for the frozen Coston2 registry in [ui/.env.example](./ui/.env.example). Registry state is read from the Coston2 RPC and event history comes from the public Coston2 explorer index. The UI shows both the current chain head and the block through which the event index is synced. Preview data is clearly labeled. Set `VITE_DEMO_MODE=false` when reading the live registry.
+The UI environment is configured for the frozen Coston2 registry in [ui/.env.example](./ui/.env.example). Registry state is read from the Coston2 RPC and event history comes from the public Coston2 explorer index. The UI shows both the current chain head and the block through which the event index is synced. It has no sample-data mode. The Private Compute surface requires the Prime RPC FCC proxy configuration and the deployed sender and verifier addresses.
+
+The FCC extension also needs `PRIME_SERVER_FCC_STORAGE_URL` and
+`PRIME_SERVER_FCC_INTERNAL_TOKEN` inside its runtime environment. The storage
+URL must be reachable from the extension container, and the internal token must
+match the Prime RPC process.
 
 ## Start here
 
 - [architecture.md](./architecture.md) explains the storage, payment, privacy, FCC, and recovery boundaries.
 - [docs/developer-api.md](./docs/developer-api.md) defines the registration-first HTTP and JavaScript client surface.
+- [docs/openapi.yaml](./docs/openapi.yaml) is the machine-readable API contract for tools and generated clients.
+- [docs/agent-integration.md](./docs/agent-integration.md) gives developers and AI agents the safe discovery, wallet, upload, verification, privacy, and provider sequence.
 - [sdk/README.md](./sdk/README.md) shows the developer client flow.
 - [SLICES.md](./SLICES.md) is the current execution queue.
 - [docs/demo-script.md](./docs/demo-script.md) explains the live provider and recovery demonstration.
@@ -185,7 +269,7 @@ sdk/         JavaScript client for the developer API
 fcc/         FCC envelope, access, key-package, and compute extension tests
 ui/          React explorer, wallet upload flow, and in-app developer docs
 scripts/     Local providers, deployment helpers, and Coston2 proof orchestration
-docs/        API reference, architecture notes, demo instructions, and evidence
+docs/        API reference, OpenAPI, agent guide, architecture notes, demos, and evidence
 test/        Cross-component and provider-harness tests
 ```
 
@@ -201,7 +285,27 @@ cp .env.example .env
 npm run dev
 ```
 
-Open the Vite URL shown in the terminal. The live explorer reads the registry directly from Coston2. The upload flow also needs Prime RPC at the URL in `VITE_PRIME_RPC_URL`.
+Open the Vite URL shown in the terminal. The live explorer reads the registry directly from Coston2. The upload flow also needs Prime RPC at the URL in `VITE_PRIME_RPC_URL`. Use the Store a blob drawer to choose Standard storage or Private compute, then connect the owner wallet before preparing a write.
+
+## Configure remote providers
+
+The first upload path has four provider slots because the current erasure
+profile is 2-of-4. A deployment can keep local child processes, replace
+individual slots with public HTTPS providers, or mix both:
+
+```
+PRIME_SERVER_PROVIDER_1_URL=https://provider-one.example
+PRIME_SERVER_PROVIDER_2_URL=https://provider-two.example
+```
+
+The Prime Server process waits for each configured endpoint's `/health`
+response before it starts the coordinator and registers the advertised
+endpoint for that provider operator. The matching
+`PRIME_SERVER_PROVIDER_N_PRIVATE_KEY` is still required for the onchain
+provider identity. Two Render services can occupy two of the four slots when
+they expose the provider daemon and persistent storage. Adding a fifth slot
+needs a placement and contract change, so it is not enabled by an environment
+variable alone.
 
 ## Run the Coston2 proofs
 
@@ -251,13 +355,13 @@ The project keeps its proof boundary explicit:
 
 ## Current boundary
 
-The storage core, wallet-owned registration, provider acknowledgements, local recovery, native paid registration, encrypted ciphertext preparation, selected-wallet ciphertext retrieval, and explorer surface are in the repository.
+The storage core, wallet-owned registration, provider acknowledgements, local recovery, native paid registration, encrypted ciphertext preparation, selected-wallet ciphertext retrieval, no-sample live explorer, and the FCC compute request path are in the repository.
 
 The following remain separate proof slices:
 
 - live FCC extension registration and TEE attestation;
 - same-wallet second-device key rewrap through the official FCC result path;
-- live confidential compute;
+- the live FCC extension proxy, simulated-TEE registration, and signed confidential-compute proof;
 - XRP, FDC, and FAssets settlement;
 - efficient shard-range retrieval instead of full reconstruction followed by HTTP slicing;
 - multipart uploads and S3 compatibility.

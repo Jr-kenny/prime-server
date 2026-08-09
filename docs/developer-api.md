@@ -2,7 +2,9 @@
 
 Prime Server exposes a developer-facing blob API at `/prime/v1`. Public writes keep ownership on Flare. The client prepares and registers the blob with the user wallet, then Prime RPC verifies that registration before it accepts the original bytes.
 
-The current implementation is Coston2 testnet infrastructure. It supports one-shot blobs up to 2 MiB, wallet sessions, object names, listing, metadata, full downloads, byte ranges, native paid registration, encrypted storage preparation, and policy commitments. Multipart uploads, S3 compatibility, cross-chain payment settlement, and live FCC compute are follow-up slices.
+Use [openapi.yaml](./openapi.yaml) for generated clients and schema-aware tools. Use [agent-integration.md](./agent-integration.md) for the safe discovery, wallet approval, upload, verification, privacy, and provider sequence.
+
+The current implementation is Coston2 testnet infrastructure. It supports one-shot blobs up to 2 MiB, wallet sessions, object names, listing, metadata, full downloads, byte ranges, native paid registration, encrypted storage preparation, policy commitments, and the FCC compute request and result routes. Multipart uploads, S3 compatibility, cross-chain payment settlement, and the live simulated-TEE evidence run remain separate proof slices.
 
 ## Authentication
 
@@ -87,7 +89,7 @@ The response includes the Prime blob ID, commitment, owner-scoped name hash, ori
 
 Private storage
 
-The SDK encrypts the file locally with AES-256-GCM before it prepares the Clay commitment. The provider and RPC receive only the ciphertext. Private and confidential preparations replace the supplied public filename with an opaque `private/<blobId>` name. The original filename and content type are included inside the encrypted metadata payload, and the metadata commitment is recorded on Flare. A sealed key envelope is committed on Flare and is intended for the FCC extension. The current repository can create and verify the envelope shape locally. It does not claim a live TEE release until FCC is deployed and attestation is checked.
+The SDK encrypts the file locally with AES-256-GCM before it prepares the Clay commitment. The provider and RPC receive only the ciphertext. Private and confidential preparations replace the supplied public filename with an opaque `private/<blobId>` name. The original filename and content type are included inside the encrypted metadata payload, and the metadata commitment is recorded on Flare. A sealed key envelope is committed on Flare and is consumed by the FCC extension. `confidentialCompute` accepts a narrow operation, waits for the signed FCC result, and submits it through the result verifier. The live TEE result still requires the official Coston2 extension registration and attestation flow.
 
 Selected wallets can retrieve ciphertext through the owner-scoped route after presenting an active, wallet-signed view access request in `x-prime-access-request-id`. The route returns ciphertext only. The SDK exposes this as `prime.get(name, { account: owner, accessRequestId })`. Confidential storage uses the same encrypted upload path with `compute_only` access. The gateway refuses raw reads for those blobs. The wallet can create a fresh EIP-712 access intent bound to a temporary device public-key commitment. The registry enforces the wallet authorization, nonce, deadline, blob expiry, revocation state, and current wallet authorization. An FCC controller must consume the intent with a response commitment before a future compute result can be released.
 

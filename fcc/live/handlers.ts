@@ -1,8 +1,8 @@
-import { createCipheriv, createECDH, createHash, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createECDH, createHash, randomBytes } from "node:crypto";
 import { decodeAbiParameters } from "viem";
 import type { Framework, HandlerResult } from "../../../fce-extension-scaffold/typescript/src/base/types.js";
 
-import { OP_COMMAND_KEY_REWRAP, OP_TYPE_PRIME_SERVER } from "./config.js";
+import { OP_COMMAND_CONFIDENTIAL_COMPUTE, OP_COMMAND_KEY_REWRAP, OP_TYPE_PRIME_SERVER } from "./config.js";
 
 const KEY_REWRAP_TYPES = [
   { type: "bytes32", name: "requestId" },
@@ -13,6 +13,17 @@ const KEY_REWRAP_TYPES = [
   { type: "bytes32", name: "keyEnvelopeCommitment" },
   { type: "bytes", name: "devicePublicKey" },
   { type: "bytes", name: "keyEnvelope" }
+] as const;
+
+const CONFIDENTIAL_COMPUTE_TYPES = [
+  { type: "bytes32", name: "requestId" },
+  { type: "bytes32", name: "blobId" },
+  { type: "address", name: "blobOwner" },
+  { type: "address", name: "requester" },
+  { type: "bytes32", name: "keyEnvelopeCommitment" },
+  { type: "bytes", name: "keyEnvelope" },
+  { type: "bytes", name: "computeSpec" },
+  { type: "bytes32", name: "inputCommitment" }
 ] as const;
 
 function bytes(value: string, field: string): Buffer {
@@ -71,6 +82,22 @@ function decodeMessage(message: string) {
   };
 }
 
+function decodeComputeMessage(message: string) {
+  if (!/^0x[0-9a-fA-F]*$/.test(message)) throw new Error("FCC message must be hex");
+  const [requestId, blobId, blobOwner, requester, keyEnvelopeCommitment, keyEnvelope, computeSpec, inputCommitment] =
+    decodeAbiParameters(CONFIDENTIAL_COMPUTE_TYPES, message as `0x${string}`);
+  return {
+    requestId,
+    blobId,
+    blobOwner,
+    requester,
+    keyEnvelopeCommitment,
+    keyEnvelope: JSON.parse(Buffer.from(keyEnvelope.slice(2), "hex").toString("utf8")) as Record<string, unknown>,
+    computeSpec: JSON.parse(Buffer.from(computeSpec.slice(2), "hex").toString("utf8")) as Record<string, unknown>,
+    inputCommitment
+  };
+}
+
 async function decryptWithTeeNode(ciphertext: Buffer): Promise<Buffer> {
   const signPort = process.env.SIGN_PORT ?? "7701";
   const response = await fetch(`http://localhost:${signPort}/decrypt`, {
@@ -82,6 +109,54 @@ async function decryptWithTeeNode(ciphertext: Buffer): Promise<Buffer> {
   const body = await response.json() as { decryptedMessage?: string };
   if (!body.decryptedMessage) throw new Error("TEE decrypt response missing plaintext");
   return Buffer.from(body.decryptedMessage, "base64");
+}
+
+async function retrieveCiphertext(blobId: string): Promise<Buffer> {
+  const storageUrl = String(process.env.PRIME_SERVER_FCC_STORAGE_URL || "").replace(/\/$/, "");
+  const token = process.env.PRIME_SERVER_FCC_INTERNAL_TOKEN || "";
+  if (!storageUrl || !token) throw new Error("FCC ciphertext storage path is not configured");
+  const response = await fetch(`${storageUrl}/internal/fcc/blobs/${blobId}/ciphertext`, {
+    headers: { "x-prime-fcc-token": token }
+  });
+  if (!response.ok) throw new Error(`FCC ciphertext retrieval failed with ${response.status}`);
+  return Buffer.from(await response.arrayBuffer());
+}
+
+function decryptStoredCiphertext(ciphertext: Buffer, fileKey: Buffer): Buffer {
+  if (fileKey.length !== 32) throw new Error("FCC file key must be 32 bytes");
+  if (ciphertext.length <= 12 + 16) throw new Error("FCC ciphertext is truncated");
+  const decipher = createDecipheriv("aes-256-gcm", fileKey, ciphertext.subarray(0, 12));
+  decipher.setAuthTag(ciphertext.subarray(ciphertext.length - 16));
+  return Buffer.concat([decipher.update(ciphertext.subarray(12, -16)), decipher.final()]);
+}
+
+function recordsFromJson(value: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(value)) return value as Array<Record<string, unknown>>;
+  if (value && typeof value === "object" && Array.isArray((value as { records?: unknown }).records)) {
+    return (value as { records: Array<Record<string, unknown>> }).records;
+  }
+  throw new Error("compute input must be a JSON array or an object with records");
+}
+
+function executeCompute(plaintext: Buffer, spec: Record<string, unknown>) {
+  const operation = String(spec.operation || "").toLowerCase();
+  if (operation === "sha256") return { operation, result: { digest: sha256(plaintext) } };
+  const parsed = JSON.parse(plaintext.toString("utf8"));
+  const records = recordsFromJson(parsed);
+  const field = String(spec.field || "");
+  if (!field) throw new Error("compute field is required");
+  if (operation === "json_field_count") {
+    return { operation, result: { count: records.filter((record) => record && record[field] !== undefined).length } };
+  }
+  if (operation === "json_field_sum") {
+    const sum = records.reduce((total, record) => {
+      const value = Number(record?.[field]);
+      if (!Number.isFinite(value)) throw new Error(`compute field ${field} must contain finite numbers`);
+      return total + value;
+    }, 0);
+    return { operation, result: { sum } };
+  }
+  throw new Error(`unsupported confidential operation: ${operation}`);
 }
 
 function wrapFileKeyForDevice(fileKey: Buffer, devicePublicKey: Buffer, requestId: string, blobId: string, deviceKeyCommitment: string) {
@@ -135,7 +210,7 @@ async function handleKeyRewrap(message: string): Promise<HandlerResult> {
     if (![0, 1].includes(Number(envelopePayload.accessPolicy))) throw new Error("private access policy required");
     const fileKey = bytes(String(envelopePayload.fileKey), "envelope.fileKey");
     if (fileKey.length !== 32) throw new Error("FCC file key must be 32 bytes");
-    if (String(envelopePayload.fileKeyCommitment).toLowerCase() !== sha256(fileKey).toLowerCase()) {
+    if (String(decoded.keyEnvelope.fileKeyCommitment).toLowerCase() !== sha256(fileKey).toLowerCase()) {
       throw new Error("file-key commitment mismatch");
     }
 
@@ -152,10 +227,54 @@ async function handleKeyRewrap(message: string): Promise<HandlerResult> {
   }
 }
 
+async function handleConfidentialCompute(message: string): Promise<HandlerResult> {
+  try {
+    const decoded = decodeComputeMessage(message);
+    const envelopeCommitment = sha256(Buffer.from(canonicalJson(decoded.keyEnvelope)));
+    if (envelopeCommitment.toLowerCase() !== decoded.keyEnvelopeCommitment.toLowerCase()) {
+      throw new Error("key envelope commitment mismatch");
+    }
+    if (decoded.keyEnvelope.scheme !== "flare-tee-ecies-aes128ctr-hmacsha256") {
+      throw new Error("official FCC envelope scheme required");
+    }
+
+    const envelopePayload = JSON.parse(
+      (await decryptWithTeeNode(bytes(String(decoded.keyEnvelope.ciphertext), "keyEnvelope.ciphertext"))).toString("utf8")
+    ) as Record<string, unknown>;
+    if (normalizeHex(String(envelopePayload.blobId)) !== normalizeHex(decoded.blobId)) throw new Error("envelope blob binding mismatch");
+    if (!addressEqual(String(envelopePayload.owner), decoded.blobOwner)) throw new Error("envelope owner binding mismatch");
+    if (Number(envelopePayload.storageMode) !== 2) throw new Error("confidential storage mode required");
+    if (Number(envelopePayload.accessPolicy) !== 2) throw new Error("compute-only access policy required");
+    const fileKey = bytes(String(envelopePayload.fileKey), "envelope.fileKey");
+    if (fileKey.length !== 32) throw new Error("FCC file key must be 32 bytes");
+    if (String(decoded.keyEnvelope.fileKeyCommitment).toLowerCase() !== sha256(fileKey).toLowerCase()) {
+      throw new Error("file-key commitment mismatch");
+    }
+
+    const ciphertext = await retrieveCiphertext(decoded.blobId);
+    if (sha256(ciphertext).toLowerCase() !== decoded.inputCommitment.toLowerCase()) {
+      throw new Error("FCC ciphertext commitment mismatch");
+    }
+    const computed = executeCompute(decryptStoredCiphertext(ciphertext, fileKey), decoded.computeSpec);
+    const response = {
+      version: 1,
+      requestId: decoded.requestId,
+      blobId: decoded.blobId,
+      operation: computed.operation,
+      result: computed.result
+    };
+    const responseCommitment = sha256(Buffer.from(canonicalJson(response)));
+    return [hex(Buffer.from(canonicalJson({ ...response, responseCommitment }))), 1, null];
+  } catch (error) {
+    return [null, 0, error instanceof Error ? error.message : String(error)];
+  }
+}
+
 export function register(framework: Framework): void {
   framework.handle(OP_TYPE_PRIME_SERVER, OP_COMMAND_KEY_REWRAP, handleKeyRewrap);
+  framework.handle(OP_TYPE_PRIME_SERVER, OP_COMMAND_CONFIDENTIAL_COMPUTE, handleConfidentialCompute);
 }
 
 export function reportState(): unknown {
-  return { operation: OP_COMMAND_KEY_REWRAP, resultData: "device-wrapped-file-key-package" };
+  return { operation: OP_COMMAND_CONFIDENTIAL_COMPUTE, resultData: "confidential-result-commitment" };
 }

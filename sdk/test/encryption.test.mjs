@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createCipheriv, createDecipheriv, createECDH, createHash, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createECDH, createHash, createHmac, randomBytes } from "node:crypto";
 import { createErasureEngine } from "../../provider/src/erasure.mjs";
 import { decryptBlob, openDeviceKeyPackage, prepareEncryptedBlob } from "../src/encryption.mjs";
 import { canonicalJson } from "../src/policy.mjs";
@@ -20,6 +20,23 @@ function openEnvelope(envelope, teeKey) {
     decipher.update(Buffer.from(envelope.ciphertext.slice(2), "hex")),
     decipher.final()
   ]).toString("utf8"));
+}
+
+function openFceEnvelope(envelope, teeKey) {
+  const recipient = createECDH("secp256k1");
+  recipient.setPrivateKey(teeKey.getPrivateKey());
+  const encrypted = Buffer.from(envelope.ciphertext.slice(2), "hex");
+  const ephemeralPublicKey = encrypted.subarray(0, 65);
+  const framed = encrypted.subarray(65, -32);
+  const tag = encrypted.subarray(-32);
+  const sharedSecret = recipient.computeSecret(ephemeralPublicKey);
+  const counter = Buffer.alloc(4);
+  counter.writeUInt32BE(1, 0);
+  const derived = createHash("sha256").update(counter).update(sharedSecret).digest();
+  const macKey = createHash("sha256").update(derived.subarray(16)).digest();
+  assert.deepEqual(createHmac("sha256", macKey).update(framed).digest(), tag);
+  const decipher = createDecipheriv("aes-128-ctr", derived.subarray(0, 16), framed.subarray(0, 16));
+  return JSON.parse(Buffer.concat([decipher.update(framed.subarray(16)), decipher.final()]).toString("utf8"));
 }
 
 test("encrypted preparation stores ciphertext commitment and an FCC-sealed key envelope", async () => {
@@ -141,6 +158,25 @@ test("confidential preparation requires compute-only access and FCC public-key m
   });
   assert.equal(prepared.policy.storageMode, 2);
   assert.equal(prepared.policy.accessPolicy, 2);
+});
+
+test("official FCC envelope preparation uses the TEE ECIES wire format", async () => {
+  const teeKey = createECDH("secp256k1");
+  teeKey.generateKeys();
+  const prepared = await prepareEncryptedBlob(Buffer.from("official FCC envelope"), {
+    name: "confidential/official.txt",
+    owner: "0x0000000000000000000000000000000000000001",
+    storageMode: "confidential",
+    accessPolicy: "compute_only",
+    fccPublicKey: `0x${teeKey.getPublicKey().toString("hex")}`,
+    envelopeScheme: "flare-tee-ecies",
+    expirationSeconds: 3600
+  });
+  assert.equal(prepared.keyEnvelope.scheme, "flare-tee-ecies-aes128ctr-hmacsha256");
+  const payload = openFceEnvelope(prepared.keyEnvelope, teeKey);
+  assert.equal(payload.fileKey, `0x${prepared.fileKey.toString("hex")}`);
+  assert.equal(payload.storageMode, 2);
+  assert.equal(payload.accessPolicy, 2);
 });
 
 test("encrypted preparation requires a source name for sealed metadata", async () => {

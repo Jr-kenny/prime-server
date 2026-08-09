@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@shelby-protocol/clay-codes": "0.0.3",
+    "@noble/curves": "1.9.1",
+    "@noble/hashes": "1.8.0",
     "@vitejs/plugin-react": "latest",
     "vite": "latest",
     "viem": "2.55.10",
