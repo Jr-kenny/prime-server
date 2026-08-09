@@ -50,7 +50,7 @@ The current developer layer deliberately keeps these capabilities explicit:
 - names are public registry metadata, so the SDK uses opaque names for private and confidential workloads while the original metadata stays inside the encrypted envelope
 - selected wallets can retrieve ciphertext through an owner-scoped route by presenting a currently usable view request; confidential raw reads remain blocked
 - challenge persistence, rate limiting, and session revocation remain public-auth hardening work
-- native paid registration, duration pricing, immediate provider claims, and the post-expiry provider reserve are implemented locally, while Coston2 deployment and evidence remain pending for the new registry build
+- native paid registration, duration pricing, immediate provider claims, and the post-expiry provider reserve are live on the frozen Coston2 registry, with the complete provider reassignment proof recorded in the evidence bundle
 - XRP, FDC, and FAssets settlement are not enabled until a real escrow or attestation path exists
 - live FCC key release and confidential compute are not enabled by local mocks
 - the four-provider deployment is a compact Coston2 network, with larger provider topologies planned

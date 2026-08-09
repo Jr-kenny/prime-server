@@ -68,6 +68,7 @@ export type ExplorerStats = {
 export type ExplorerData = {
   source: "preview" | "coston2";
   latestBlock?: string;
+  indexedBlock?: string;
   fromBlock?: string;
   blobs: ExplorerBlob[];
   events: ExplorerEvent[];
@@ -183,6 +184,7 @@ function makeStats(blobs: ExplorerBlob[], events: ExplorerEvent[], providers: Ex
 export const previewData: ExplorerData = {
   source: "preview",
   latestBlock: "Preview",
+  indexedBlock: "Preview",
   fromBlock: "Preview",
   blobs: previewBlobs,
   events: previewEvents,
@@ -236,23 +238,66 @@ async function readContract(client: any, address: Address, functionName: string,
   return client.readContract({ address, abi: registryAbi, functionName, args });
 }
 
+type ExplorerApiLog = {
+  address?: { hash?: string };
+  block_number: number;
+  transaction_hash: string;
+  index: number;
+  data: string;
+  topics: Array<string | null>;
+};
+
+function mapExplorerApiLog(log: ExplorerApiLog, address: Address) {
+  return {
+    address: (log.address?.hash || address) as Address,
+    blockNumber: BigInt(log.block_number),
+    transactionHash: log.transaction_hash,
+    logIndex: log.index,
+    data: log.data,
+    topics: log.topics.filter((topic): topic is string => Boolean(topic))
+  };
+}
+
+async function loadExplorerLogs(address: Address, fromBlock: bigint, latestBlock: bigint) {
+  const apiBase = (import.meta.env.VITE_COSTON2_EXPLORER_API_URL || "https://coston2-explorer.flare.network/api/v2").replace(/\/$/, "");
+  const logs: any[] = [];
+  let nextPageParams: Record<string, string | number> | undefined;
+  let indexedBlock: bigint | undefined;
+
+  while (true) {
+    const url = new URL(`${apiBase}/addresses/${address}/logs`);
+    if (nextPageParams) {
+      for (const [key, value] of Object.entries(nextPageParams)) url.searchParams.set(key, String(value));
+    }
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Coston2 event index returned HTTP ${response.status}`);
+    const payload = await response.json() as { items?: ExplorerApiLog[]; next_page_params?: Record<string, string | number> | null; errors?: Array<{ detail?: string }> };
+    if (payload.errors?.length) throw new Error(payload.errors.map((error) => error.detail || "Coston2 event index error").join(", "));
+
+    let reachedStart = false;
+    for (const item of payload.items || []) {
+      const blockNumber = BigInt(item.block_number);
+      if (blockNumber > latestBlock) continue;
+      if (blockNumber < fromBlock) {
+        reachedStart = true;
+        break;
+      }
+      indexedBlock = indexedBlock === undefined || blockNumber > indexedBlock ? blockNumber : indexedBlock;
+      logs.push(mapExplorerApiLog(item, address));
+    }
+    if (reachedStart || !payload.next_page_params) break;
+    nextPageParams = payload.next_page_params;
+  }
+
+  return { logs, indexedBlock };
+}
+
 export async function loadExplorerData(client: any, address: Address): Promise<ExplorerData> {
   const latestBlock = await client.getBlockNumber();
   const configuredFrom = import.meta.env.VITE_REGISTRY_DEPLOYMENT_BLOCK;
   const fallbackFrom = latestBlock > 75_000n ? latestBlock - 75_000n : 0n;
   const fromBlock = configuredFrom ? BigInt(configuredFrom) : fallbackFrom;
-  const logs: any[] = [];
-  // The public Coston2 RPC is more reliable with a few bounded requests than
-  // dozens of concurrent 30-block requests.
-  const maxLogRange = 2_000n;
-  const ranges: Array<{ fromBlock: bigint; toBlock: bigint }> = [];
-  for (let cursor = fromBlock; cursor <= latestBlock; cursor += maxLogRange) {
-    ranges.push({ fromBlock: cursor, toBlock: cursor + maxLogRange - 1n < latestBlock ? cursor + maxLogRange - 1n : latestBlock });
-  }
-  for (let offset = 0; offset < ranges.length; offset += 4) {
-    const batch = await Promise.all(ranges.slice(offset, offset + 4).map((range) => client.getLogs({ address, ...range })));
-    logs.push(...batch.flat());
-  }
+  const { logs, indexedBlock } = await loadExplorerLogs(address, fromBlock, latestBlock);
   const parsed = parseEventLogs({ abi: registryAbi, logs, strict: false }) as Array<any>;
   const blobsById = new Map<string, { owner: string; name: string; createdBlock?: string; transaction?: string }>();
   const providersById = new Map<number, ExplorerProvider>();
@@ -334,8 +379,8 @@ export async function loadExplorerData(client: any, address: Address): Promise<E
         const acknowledged = providerId > 0 && (Boolean(await readContract(client, address, "acknowledgements", [id, providerId, shard]).then((ack: any) => ack?.[3]).catch(() => false)) || shard < asNumber(raw[6]));
         return { shard, providerId, provider: provider ? `Provider ${providerId}` : providerId ? `Provider ${providerId}` : "Awaiting assignment", endpoint: provider?.endpoint, acknowledged };
       }));
-      const policyStorageMode = asNumber(policy?.[0]);
-      const policyAccess = asNumber(policy?.[1]);
+      const policyStorageMode = asNumber(valueOf(policy as Record<string, unknown> | undefined, "storageMode", 0));
+      const policyAccess = asNumber(valueOf(policy as Record<string, unknown> | undefined, "accessPolicy", 1));
       return {
         id,
         name: (await readContract(client, address, "blobNames", [id]).catch(() => meta.name)) || meta.name,
@@ -349,13 +394,13 @@ export async function loadExplorerData(client: any, address: Address): Promise<E
         commitment: asString(raw[1]),
         storageMode: storageModeNames[policyStorageMode] || "Public",
         accessPolicy: accessPolicyNames[policyAccess] || "Owner only",
-        paymentStatus: paymentStatusNames[asNumber(payment?.[1])] || "Unpaid",
+        paymentStatus: paymentStatusNames[asNumber(valueOf(payment as Record<string, unknown> | undefined, "status", 1))] || "Unpaid",
         origin: asNumber(raw[10]) === 1 ? "Operator" : "User",
         createdBlock: meta.createdBlock,
         transaction: meta.transaction,
-        policyCommitment: asString(policy?.[2]) || undefined,
-        keyEnvelopeCommitment: asString(policy?.[3]) || undefined,
-        metadataCommitment: asString(policy?.[4]) || undefined,
+        policyCommitment: asString(valueOf(policy as Record<string, unknown> | undefined, "policyCommitment", 2)) || undefined,
+        keyEnvelopeCommitment: asString(valueOf(policy as Record<string, unknown> | undefined, "keyEnvelopeCommitment", 3)) || undefined,
+        metadataCommitment: asString(valueOf(policy as Record<string, unknown> | undefined, "metadataCommitment", 4)) || undefined,
         placements
       } as ExplorerBlob;
     } catch {
@@ -367,6 +412,7 @@ export async function loadExplorerData(client: any, address: Address): Promise<E
   return {
     source: "coston2",
     latestBlock: latestBlock.toString(),
+    indexedBlock: indexedBlock?.toString(),
     fromBlock: fromBlock.toString(),
     blobs,
     events,
@@ -388,7 +434,7 @@ export function eventTransaction(event: ExplorerEvent) {
 }
 
 export function statsDetail(stats: ExplorerStats) {
-  return `${stats.activeProviders}/${stats.providers || 0} providers responding`;
+  return `${stats.activeProviders}/${stats.providers || 0} active on registry`;
 }
 
 export { formatBytes };

@@ -36,4 +36,4 @@ Validation:
 - Provider: `4` tests passed.
 - Read-only Coston2 verification confirmed chain ID `114`, successful deployment, non-empty runtime bytecode, the expected admin, and empty global claim markers for an unused blob.
 
-This is the frozen Coston2 registry target for the next provider registration and complete paid-storage, failure, recovery, and settlement proof. The full live proof has not yet been rerun against this address. FCC attestation and XRP/FDC/FAssets settlement remain separate, pending layers.
+The complete final-registry provider, failure, recovery, and paid settlement proof is recorded in [coston2-live-provider-recovery-settlement-proof.md](./coston2-live-provider-recovery-settlement-proof.md). FCC attestation and XRP/FDC/FAssets settlement remain separate pending layers.

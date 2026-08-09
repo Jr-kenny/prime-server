@@ -146,7 +146,7 @@ The latest private ciphertext proof passed against this frozen address. It used 
 
 The machine-readable proof and exact hashes are in [docs/evidence/coston2-live-private-ciphertext-proof.md](./docs/evidence/coston2-live-private-ciphertext-proof.md).
 
-The contract regression for provider reassignment is also covered. The original provider receives its immediate reward once, the replacement provider receives the expiry reserve, and the pool can reach `Settled`. A fresh complete provider failure, recovery, and expiry settlement run against the final frozen deployment is still pending.
+The final frozen-registry proof also covers provider failure, shard reconstruction, reassignment, expiry reserve settlement, and the full provider pool reaching `Settled`. The original provider receives its immediate reward once, and the replacement provider receives only the reserve for the reassigned shard. See [docs/evidence/coston2-live-provider-recovery-settlement-proof.md](./docs/evidence/coston2-live-provider-recovery-settlement-proof.md).
 
 ## The explorer
 
@@ -160,7 +160,7 @@ The React explorer is the product surface for the protocol. It exposes:
 - per-blob placement details and transaction links;
 - an in-app developer documentation page with the HTTP API, SDK, privacy, provider, payment, contract, and limit references.
 
-The UI environment is configured for the frozen Coston2 registry in [ui/.env.example](./ui/.env.example). Preview data is clearly labeled. Set `VITE_DEMO_MODE=false` when reading the live registry.
+The UI environment is configured for the frozen Coston2 registry in [ui/.env.example](./ui/.env.example). Registry state is read from the Coston2 RPC and event history comes from the public Coston2 explorer index. The UI shows both the current chain head and the block through which the event index is synced. Preview data is clearly labeled. Set `VITE_DEMO_MODE=false` when reading the live registry.
 
 ## Start here
 
@@ -170,6 +170,7 @@ The UI environment is configured for the frozen Coston2 registry in [ui/.env.exa
 - [SLICES.md](./SLICES.md) is the current execution queue.
 - [docs/demo-script.md](./docs/demo-script.md) explains the live provider and recovery demonstration.
 - [docs/evidence/coston2-live-private-ciphertext-proof.md](./docs/evidence/coston2-live-private-ciphertext-proof.md) records the frozen-registry private proof.
+- [docs/evidence/coston2-live-provider-recovery-settlement-proof.md](./docs/evidence/coston2-live-provider-recovery-settlement-proof.md) records the final-registry provider recovery and paid settlement proof.
 - [docs/evidence/coston2-settlement-reassignment-fix-deployment.md](./docs/evidence/coston2-settlement-reassignment-fix-deployment.md) records the final registry deployment and settlement regression.
 - [contracts/src/PrimeServerRegistry.sol](./contracts/src/PrimeServerRegistry.sol) is the onchain lifecycle and payment surface.
 - [REQUESTED_INPUTS.md](./REQUESTED_INPUTS.md) lists the local credentials and software needed for live slices.
@@ -210,6 +211,12 @@ The core provider failure and recovery path is:
 
 ```bash
 node scripts/coston2-demo.mjs
+```
+
+The paid reassignment and expiry reserve path is:
+
+```bash
+node scripts/coston2-settlement-reassignment-demo.mjs
 ```
 
 The private ciphertext path is:

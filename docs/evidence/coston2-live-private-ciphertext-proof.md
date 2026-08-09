@@ -109,4 +109,4 @@ The same run registered and uploaded a second encrypted blob with `confidential 
 - Error: `compute-only blobs require an FCC access result`
 - Plaintext released: `false`
 
-This completes the live private ciphertext, selected-wallet retrieval, provider failure, ciphertext recovery, local decryption, and compute-only download guard proof. Live FCC key rewrap, TEE attestation, confidential compute, XRP/FDC/FAssets settlement, and explorer UI remain separate slices.
+This completes the live private ciphertext, selected-wallet retrieval, provider failure, ciphertext recovery, local decryption, and compute-only download guard proof. Live FCC key rewrap, TEE attestation, confidential compute, and XRP/FDC/FAssets settlement remain separate slices. The explorer UI is implemented and build-checked, with its current live registry boundary documented in the root README.

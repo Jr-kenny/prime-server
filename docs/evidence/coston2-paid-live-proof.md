@@ -1,10 +1,10 @@
-# Prime Server Coston2 paid and policy proof
+# Prime Server Coston2 historical paid and policy proof
 
 Recorded on 2026-08-03 from the local Prime Server checkout.
 
 This run proves the new native paid and policy layers against a fresh Coston2 registry. It does not claim XRP settlement, live FCC key release, TEE attestation, or confidential compute.
 
-This is the pre-hardening paid proof. The registry source now adds duration pricing, a post-expiry provider reserve, stricter access expiry checks, and opaque private names. Those changes are locally verified and require a fresh Coston2 deployment before this document can be refreshed.
+This is a historical pre-hardening paid proof. The final frozen-registry paid, recovery, and settlement proof is in [coston2-live-provider-recovery-settlement-proof.md](./coston2-live-provider-recovery-settlement-proof.md). The final private and access proof is in [coston2-live-private-ciphertext-proof.md](./coston2-live-private-ciphertext-proof.md).
 
 ## Deployment
 

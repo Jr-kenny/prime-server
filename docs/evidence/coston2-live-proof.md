@@ -2,7 +2,7 @@
 
 Recorded on 2026-08-03 from the local Prime Server checkout.
 
-These results come from two runs against the earlier registry below. The first run proves provider placement, shard loss, recovery, and rebuild. The second run proves the public registration-first wallet flow through the SDK and developer API. The current registry with native payment, policy, and access-intent fields is documented in [coston2-paid-live-proof.md](./coston2-paid-live-proof.md).
+These results come from two historical runs against the earlier registry below. The final frozen-registry provider, recovery, payment, and private ciphertext proofs are documented in [coston2-live-provider-recovery-settlement-proof.md](./coston2-live-provider-recovery-settlement-proof.md) and [coston2-live-private-ciphertext-proof.md](./coston2-live-private-ciphertext-proof.md).
 
 The provider endpoints in these runs use loopback addresses on the Mac. They prove process isolation and the protocol lifecycle. They are not public storage endpoints.
 
@@ -18,7 +18,7 @@ The provider endpoints in these runs use loopback addresses on the Mac. They pro
 | Deployed runtime bytecode | `10,849` bytes |
 | Deployment receipt | success |
 
-The deployment in this document is historical. The ignored local `.env` now points Prime RPC and the proof harness at the replacement registry documented in [coston2-paid-live-proof.md](./coston2-paid-live-proof.md).
+The deployment in this document is historical. The ignored local `.env` now points Prime RPC and the proof harness at the frozen registry documented in [coston2-settlement-reassignment-fix-deployment.md](./coston2-settlement-reassignment-fix-deployment.md).
 
 ## Four-provider recovery proof
 

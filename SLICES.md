@@ -190,7 +190,7 @@ Acceptance:
 - A provider registration and blob creation transaction are independently readable.
 - The local evidence record contains chain ID, contract address, block numbers, and transaction hashes.
 
-Current output: the settlement-corrected registry is deployed to Coston2 at `0x5E43cCe14cf17c96aF6d7ADF47592f5118Ab05E1`. The deployment succeeded in block `33590506`, and the transaction, chain ID, compiler settings, global marker design, and 24,355-byte runtime verification are recorded in `docs/evidence/coston2-settlement-reassignment-fix-deployment.md`. Provider re-registration and the paid, private ciphertext, access-intent, recovery, and settlement proofs still need to be rerun against this address.
+Current output: the settlement-corrected registry is deployed to Coston2 at `0x5E43cCe14cf17c96aF6d7ADF47592f5118Ab05E1`. The deployment succeeded in block `33590506`, and the transaction, chain ID, compiler settings, global marker design, and 24,355-byte runtime verification are recorded in `docs/evidence/coston2-settlement-reassignment-fix-deployment.md`. Provider registration, paid storage, private ciphertext recovery, access intent, and settlement were rerun against this frozen address.
 
 ## Slice 8: event indexer and recovery coordinator
 
@@ -237,11 +237,11 @@ real upload
 -> matching final hash
 ```
 
-Current output: `scripts/coston2-demo.mjs` ran the complete live proof on Coston2 against the replacement registry. A 2 MiB blob reached `active` after four provider acknowledgements. Provider 2 and provider 4 were stopped, shards 1 and 3 were removed from their storage paths, the original bytes were reconstructed from the two surviving shards, both missing shards were rebuilt, and the final state reached `rebuilt`. The input, recovered, and final SHA-256 hash were identical. The replacement run is `coston2-1785771713115-23093`, saved under `.prime-server/evidence/coston2/`, and summarized in `docs/evidence/coston2-live-proof.md`.
+Current output: `scripts/coston2-demo.mjs` ran the complete live proof on Coston2 against the frozen registry. A 2 MiB blob reached `active` after four provider acknowledgements. Provider 2 and provider 4 were stopped, shards 1 and 3 were removed from their storage paths, the original bytes were reconstructed from the two surviving shards, both missing shards were rebuilt, and the final state reached `rebuilt`. The input, recovered, and final SHA-256 hash were identical. The final-registry run is `coston2-1785785829219-56293`, saved under `.prime-server/evidence/coston2/`, and summarized in `docs/evidence/coston2-live-provider-recovery-settlement-proof.md`.
 
 ## Slice 10: operator view
 
-Status: `pending`
+Status: `complete`
 
 Dependencies: Slice 9.
 
@@ -258,6 +258,8 @@ Acceptance:
 - The complete demo can be understood without opening a terminal.
 - Raw evidence remains one click away.
 
+Evidence: The React explorer in `ui/src/App.tsx` exposes overview, blobs, events, providers, recovery, and developer documentation views. Live event rows and blob details link to Coston2 transactions. `npm run build` passes from `ui/`. The final proof pages under `docs/evidence/` provide the reviewer-facing evidence bundle.
+
 ## Architecture extension queue
 
 These slices extend the proven storage and recovery core. They do not replace the direct wallet registration, Clay encoding, provider acknowledgement, or recovery boundaries above.
@@ -270,7 +272,7 @@ The settlement-corrected registry is deployed to Coston2 at `0x5E43cCe14cf17c96a
 
 ## Slice 11: shared policy and native payment schema
 
-Status: `complete locally, corrected Coston2 registry deployed, live paid proof pending, XRP settlement pending`
+Status: `complete locally and live on corrected Coston2 registry, XRP settlement pending`
 
 Dependencies: Slice 9.
 
@@ -289,11 +291,11 @@ Acceptance:
 - A real local EVM test registers a paid blob, uploads it through the developer API, pays the immediate claims for all four providers, and reads the partially settled payment state while the retention reserve remains escrowed.
 - The registry runtime stays below EIP-170 under the configured via-IR build.
 
-Evidence: The native payment, duration quote, retention reserve, and provider reassignment settlement tests pass locally. SDK and RPC suites pass. The corrected registry deployment is recorded in `docs/evidence/coston2-settlement-reassignment-fix-deployment.md`. The live paid proof must be rerun against that address. The current via-IR build remains below EIP-170.
+Evidence: The native payment, duration quote, retention reserve, and provider reassignment settlement tests pass locally. The final live provider and settlement proof is recorded in `docs/evidence/coston2-live-provider-recovery-settlement-proof.md`, with machine evidence in `.prime-server/evidence/coston2/coston2-settlement-1785786797441-58600.json`. The current via-IR build remains below EIP-170.
 
 ## Slice 11A: payment, metadata, and access hardening
 
-Status: `complete locally, corrected Coston2 registry deployed, live hardening proof pending`
+Status: `complete locally and live on corrected Coston2 registry`
 
 Dependencies: Slice 11.
 
@@ -313,7 +315,7 @@ Acceptance:
 - SDK tests cover nested canonicalization, encrypted metadata recovery, opaque names, and selected-wallet retrieval options.
 - RPC tests cover the owner-scoped selected-wallet ciphertext route.
 
-Evidence: Local Foundry, SDK, provider, and RPC suites pass. The corrected registry deployment is recorded in `docs/evidence/coston2-settlement-reassignment-fix-deployment.md`. Provider re-registration and a complete live hardening proof are still required before these changes can be claimed live on Coston2.
+Evidence: Local Foundry, SDK, provider, and RPC suites pass. The frozen-registry private ciphertext, selected-wallet retrieval, failure recovery, and compute-only guard proof is recorded in `docs/evidence/coston2-live-private-ciphertext-proof.md`, with machine evidence in `.prime-server/evidence/coston2/coston2-private-1785788401731-62772.json`.
 
 Freeze boundary: `PrimeServerRegistry` is frozen after this slice. FCC transport and XRP, FDC, and FAssets settlement continue in separate contracts and extensions. Future changes must preserve this registry ABI and storage layout unless a separately approved registry version is created.
 

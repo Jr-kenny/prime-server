@@ -320,7 +320,7 @@ For private and confidential uploads, the uploaded bytes are the ciphertext prod
 
 The first deployment target is Flare Coston2.
 
-The current frozen registry deployment is `0x5E43cCe14cf17c96aF6d7ADF47592f5118Ab05E1`, deployed in block `33590506` after the recovery settlement reassignment fix. The earlier paid, storage, and recovery proofs remain historical and must be rerun against this address before being presented as proof for the frozen build. Deployment evidence is recorded in `docs/evidence/coston2-settlement-reassignment-fix-deployment.md`.
+The current frozen registry deployment is `0x5E43cCe14cf17c96aF6d7ADF47592f5118Ab05E1`, deployed in block `33590506` after the recovery settlement reassignment fix. The final provider, payment, recovery, and private ciphertext proofs were rerun against this address. Deployment evidence is recorded in `docs/evidence/coston2-settlement-reassignment-fix-deployment.md`, with the combined provider and settlement proof in `docs/evidence/coston2-live-provider-recovery-settlement-proof.md`.
 
 ```text
 chain ID: 114
@@ -362,7 +362,7 @@ Included:
 - Provider shutdown and recovery.
 - Rebuild after recovery.
 - Coston2 transaction and log evidence.
-- A polished operator view for the demo.
+- A polished operator view for the demo, with live registry events, provider placement, acknowledgements, recovery activity, and transaction links.
 
 Deferred:
 
@@ -372,7 +372,7 @@ Deferred:
 - Global provider discovery.
 - Multi-region deployment.
 - Public user storage guarantees.
-- FDC or FCC extensions before the core loop is proven.
+- FDC or FCC extensions before their own live proof exists.
 
 ## 11. Current evidence
 
@@ -386,7 +386,7 @@ Verified before implementation in this repository:
 Repository status:
 
 - Scaffold created: 2026-08-03.
-- PrimeServerRegistry deployed to Coston2 at `0x9864476bFFBe1d261419Bc6b1b6ec3c00CF65325` in block `33577929`.
-- A live 2 MiB upload, two-provider failure, reconstruction, shard rebuild, and final hash proof passed on Coston2.
+- PrimeServerRegistry is frozen on Coston2 at `0x5E43cCe14cf17c96aF6d7ADF47592f5118Ab05E1`, deployed in block `33590506`.
+- Final-registry proofs cover a 2 MiB upload, two-provider failure, reconstruction, shard rebuild, paid reassignment settlement, private ciphertext recovery, and the compute-only download guard.
 - No public endpoint exists yet.
-- The local proof does not make a production storage or payment claim. Its exact evidence is recorded in `docs/evidence/coston2-live-proof.md`.
+- The Coston2 proof does not make a production storage or payment guarantee. Exact evidence is recorded under `docs/evidence/`.
