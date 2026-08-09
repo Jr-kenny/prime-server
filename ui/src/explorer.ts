@@ -149,6 +149,15 @@ type ExplorerApiLog = {
   topics: Array<string | null>;
 };
 
+type LegacyExplorerApiLog = {
+  address: string;
+  blockNumber: string;
+  transactionHash: string;
+  logIndex: string;
+  data: string;
+  topics: string[];
+};
+
 function mapExplorerApiLog(log: ExplorerApiLog, address: Address) {
   return {
     address: (log.address?.hash || address) as Address,
@@ -162,6 +171,32 @@ function mapExplorerApiLog(log: ExplorerApiLog, address: Address) {
 
 async function loadExplorerLogs(address: Address, fromBlock: bigint, latestBlock: bigint) {
   const apiBase = (import.meta.env.VITE_COSTON2_EXPLORER_API_URL || "https://coston2-explorer.flare.network/api/v2").replace(/\/$/, "");
+  const legacyApi = apiBase.endsWith("/api/v2") ? apiBase.slice(0, -3) : `${apiBase}/api`;
+  const legacyUrl = new URL(legacyApi);
+  legacyUrl.searchParams.set("module", "logs");
+  legacyUrl.searchParams.set("action", "getLogs");
+  legacyUrl.searchParams.set("fromBlock", fromBlock.toString());
+  legacyUrl.searchParams.set("toBlock", latestBlock.toString());
+  legacyUrl.searchParams.set("address", address);
+  try {
+    const response = await fetch(legacyUrl);
+    if (!response.ok) throw new Error(`Coston2 event index returned HTTP ${response.status}`);
+    const payload = await response.json() as { status?: string; message?: string; result?: LegacyExplorerApiLog[] | string };
+    if (payload.status !== "1" || !Array.isArray(payload.result)) throw new Error(payload.message || "Coston2 event index error");
+    const logs = payload.result.map((log) => ({
+      address: log.address as Address,
+      blockNumber: BigInt(log.blockNumber),
+      transactionHash: log.transactionHash,
+      logIndex: Number(BigInt(log.logIndex)),
+      data: log.data,
+      topics: log.topics
+    }));
+    const indexedBlock = logs.reduce<bigint | undefined>((highest, log) => highest === undefined || log.blockNumber > highest ? log.blockNumber : highest, undefined);
+    return { logs, indexedBlock };
+  } catch {
+    // The paginated v2 endpoint remains as a compatibility fallback.
+  }
+
   const logs: any[] = [];
   let nextPageParams: Record<string, string | number> | undefined;
   let indexedBlock: bigint | undefined;
@@ -192,6 +227,27 @@ async function loadExplorerLogs(address: Address, fromBlock: bigint, latestBlock
   }
 
   return { logs, indexedBlock };
+}
+
+const explorerCacheVersion = "v2";
+
+export function readExplorerCache(address: Address): ExplorerData | undefined {
+  try {
+    const value = window.localStorage.getItem(`prime-server:explorer:${explorerCacheVersion}:${address.toLowerCase()}`);
+    if (!value) return undefined;
+    const data = JSON.parse(value) as ExplorerData;
+    return data.source === "coston2" && Array.isArray(data.events) && Array.isArray(data.blobs) ? data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function writeExplorerCache(address: Address, data: ExplorerData) {
+  try {
+    window.localStorage.setItem(`prime-server:explorer:${explorerCacheVersion}:${address.toLowerCase()}`, JSON.stringify(data));
+  } catch {
+    // Storage can be unavailable in private browsing. Live loading still works.
+  }
 }
 
 export async function loadExplorerData(client: any, address: Address): Promise<ExplorerData> {

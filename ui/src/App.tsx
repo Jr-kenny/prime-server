@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { createPublicClient, createWalletClient, custom, http, type Address, type EIP1193Provider } from "viem";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPublicClient, createWalletClient, custom, http, type Address } from "viem";
 import { Icon } from "./icons";
 import { DocsPage } from "./DocsPage";
 import { prepareConfidentialFile, type PreparedConfidentialBlob } from "./confidential";
@@ -12,15 +12,18 @@ import {
   eventTransaction,
   emptyExplorerData,
   loadExplorerData,
+  readExplorerCache,
   statsDetail,
+  writeExplorerCache,
   type ExplorerBlob,
   type ExplorerData,
   type ExplorerEvent,
   type ExplorerProvider,
   type Placement
 } from "./explorer";
+import { ensureCoston2Network, walletErrorMessage, watchInjectedWallets, type InjectedProvider, type WalletOption } from "./wallet";
 
-declare global { interface Window { ethereum?: EIP1193Provider } }
+declare global { interface Window { ethereum?: InjectedProvider } }
 
 const apiUrl = (import.meta.env.VITE_PRIME_RPC_URL || (import.meta.env.PROD ? "/prime-api" : "http://localhost:8787/prime/v1")).replace(/\/$/, "");
 const apiConfigured = Boolean(import.meta.env.VITE_PRIME_RPC_URL || import.meta.env.PROD);
@@ -43,72 +46,26 @@ const navItems: Array<{ id: View; label: string; icon: string }> = [
 ];
 
 function connectLabel(account?: Address) { return account ? shortHex(account, 8, 4) : "Connect wallet"; }
-
-const coston2ChainId = `0x${coston2.id.toString(16)}`;
-const coston2WalletParams = {
-  chainId: coston2ChainId,
-  chainName: coston2.name,
-  nativeCurrency: coston2.nativeCurrency,
-  rpcUrls: [...coston2.rpcUrls.default.http],
-  blockExplorerUrls: [coston2.blockExplorers.default.url]
-};
-
-function walletErrorCode(error: unknown) {
-  return typeof error === "object" && error !== null && "code" in error ? (error as { code?: unknown }).code : undefined;
-}
-
-function walletErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function normalizeChainId(value: unknown) {
-  const chainId = String(value).toLowerCase();
-  return chainId.startsWith("0x") ? chainId : `0x${Number(chainId).toString(16)}`;
-}
-
-function isUnknownWalletChain(error: unknown) {
-  const code = walletErrorCode(error);
-  const message = walletErrorMessage(error).toLowerCase();
-  return code === 4902 || message.includes("unrecognized chain") || message.includes("unknown chain") || message.includes("chain not added");
-}
-
-async function ensureCoston2Network(provider: EIP1193Provider): Promise<"ready" | "switched" | "added"> {
-  const currentChainId = normalizeChainId(await provider.request({ method: "eth_chainId" }));
-  if (currentChainId === coston2ChainId) return "ready";
-
-  try {
-    await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: coston2ChainId }] });
-  } catch (error) {
-    if (walletErrorCode(error) === 4001) throw new Error("Approve the switch to Flare Coston2 in your wallet to continue.");
-    if (!isUnknownWalletChain(error)) throw error;
-    try {
-      await provider.request({ method: "wallet_addEthereumChain", params: [coston2WalletParams] });
-      await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: coston2ChainId }] });
-    } catch (addError) {
-      if (walletErrorCode(addError) === 4001) throw new Error("Approve adding Flare Coston2 in your wallet to continue.");
-      throw addError;
-    }
-    const addedChainId = normalizeChainId(await provider.request({ method: "eth_chainId" }));
-    if (addedChainId !== coston2ChainId) throw new Error("Your wallet must be connected to Flare Coston2 to continue.");
-    return "added";
-  }
-
-  const selectedChainId = normalizeChainId(await provider.request({ method: "eth_chainId" }));
-  if (selectedChainId !== coston2ChainId) throw new Error("Your wallet must be connected to Flare Coston2 to continue.");
-  return "switched";
-}
+const WalletProviderContext = createContext<InjectedProvider | undefined>(undefined);
 
 export function App() {
+  const initialExplorerData = useMemo(() => liveMode && registryAddress ? readExplorerCache(registryAddress) : undefined, []);
   const [account, setAccount] = useState<Address>();
+  const [wallets, setWallets] = useState<WalletOption[]>([]);
+  const [walletProvider, setWalletProvider] = useState<InjectedProvider>();
+  const [walletMenuOpen, setWalletMenuOpen] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [selectedBlob, setSelectedBlob] = useState<ExplorerBlob>();
   const [selectedProvider, setSelectedProvider] = useState<ExplorerProvider>();
   const [view, setView] = useState<View>("overview");
   const [search, setSearch] = useState("");
   const [notice, setNotice] = useState<string>();
-  const [data, setData] = useState<ExplorerData>(emptyExplorerData);
-  const [loading, setLoading] = useState(liveMode);
+  const [data, setData] = useState<ExplorerData>(initialExplorerData || emptyExplorerData);
+  const [loading, setLoading] = useState(liveMode && !initialExplorerData);
+  const [refreshing, setRefreshing] = useState(liveMode);
   const [dataError, setDataError] = useState<string>();
+  const hasLoadedData = useRef(Boolean(initialExplorerData));
   const publicClient = useMemo(() => createPublicClient({
     chain: coston2,
     transport: http(coston2.rpcUrls.default.http[0], {
@@ -120,28 +77,55 @@ export function App() {
 
   const refresh = useCallback(async () => {
     if (!liveMode || !registryAddress) return;
-    setLoading(true);
+    setLoading(!hasLoadedData.current);
+    setRefreshing(true);
     setDataError(undefined);
     try {
-      setData(await loadExplorerData(publicClient, registryAddress));
+      const nextData = await loadExplorerData(publicClient, registryAddress);
+      setData(nextData);
+      writeExplorerCache(registryAddress, nextData);
+      hasLoadedData.current = true;
     } catch (error) {
       setDataError(error instanceof Error ? error.message : "Coston2 registry feed could not be loaded");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [publicClient]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  async function connect() {
-    if (!window.ethereum) return setNotice("Install a browser wallet to connect to Coston2.");
+  useEffect(() => watchInjectedWallets(setWallets), []);
+
+  useEffect(() => {
+    if (!walletProvider?.on) return;
+    const accountsChanged = (accounts: unknown) => setAccount(Array.isArray(accounts) && typeof accounts[0] === "string" ? accounts[0] as Address : undefined);
+    walletProvider.on("accountsChanged", accountsChanged);
+    return () => walletProvider.removeListener?.("accountsChanged", accountsChanged);
+  }, [walletProvider]);
+
+  async function connect(option?: WalletOption) {
+    if (!option && !walletProvider && wallets.length > 1) {
+      setWalletMenuOpen((open) => !open);
+      return;
+    }
+    const provider = option?.provider || walletProvider || wallets[0]?.provider || window.ethereum;
+    if (!provider) return setNotice("Install a browser wallet to connect to Coston2.");
     try {
-      const wallet = createWalletClient({ chain: coston2, transport: custom(window.ethereum) });
-      const [address] = await wallet.requestAddresses();
-      const networkAction = await ensureCoston2Network(window.ethereum);
+      setConnecting(true);
+      setWalletMenuOpen(false);
+      const requested = await provider.request({ method: "eth_requestAccounts" });
+      const address = Array.isArray(requested) && typeof requested[0] === "string" ? requested[0] as Address : undefined;
+      if (!address) throw new Error("The wallet did not return an account. Unlock it and try again.");
+      const networkAction = await ensureCoston2Network(provider);
+      setWalletProvider(provider);
       setAccount(address);
-      setNotice(networkAction === "added" ? `Added Flare Coston2 and connected to ${shortHex(address, 8, 4)}.` : networkAction === "switched" ? `Switched to Flare Coston2 and connected to ${shortHex(address, 8, 4)}.` : `Connected to ${shortHex(address, 8, 4)} on Flare Coston2.`);
-    } catch (error) { setNotice(walletErrorMessage(error) || "Wallet connection failed"); }
+      setNotice(networkAction === "added" ? `Added Flare Testnet Coston2 and connected to ${shortHex(address, 8, 4)}.` : networkAction === "switched" ? `Switched to Flare Testnet Coston2 and connected to ${shortHex(address, 8, 4)}.` : `Connected to ${shortHex(address, 8, 4)} on Flare Testnet Coston2.`);
+    } catch (error) {
+      setNotice(walletErrorMessage(error));
+    } finally {
+      setConnecting(false);
+    }
   }
 
   const normalizedSearch = search.trim().toLowerCase();
@@ -161,7 +145,7 @@ export function App() {
     ? `Reading Prime Server Registry state from Coston2${data.latestBlock ? ` at head block ${data.latestBlock}` : ""}${data.indexedBlock ? `, with events indexed through block ${data.indexedBlock}` : ""}.`
     : "Set VITE_REGISTRY_ADDRESS to read live Coston2 state. No sample data is loaded.";
 
-  return <div className="app-shell">
+  return <WalletProviderContext.Provider value={walletProvider}><div className="app-shell">
     <aside className="sidebar">
       <div className="brand"><div className="brand-mark"><span/><span/><span/></div><div><strong>Prime</strong><small>SERVER</small></div></div>
       <nav aria-label="Prime Server sections">
@@ -176,13 +160,13 @@ export function App() {
       <header className="topbar">
         <button className="mobile-brand" onClick={() => openView("overview")}>P</button>
         <div className="global-search"><Icon name="search"/><input aria-label="Search blobs, owners or transactions" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search blobs, owners or transactions"/><kbd>⌘ K</kbd></div>
-        <div className="top-actions"><div className="chain-pill"><span className="flare-icon">F</span>Coston2</div><button className="wallet-button" onClick={connect}><Icon name="wallet"/>{connectLabel(account)}</button></div>
+        <div className="top-actions"><div className="chain-pill"><span className="flare-icon">F</span>Coston2</div><div className="wallet-control"><button className="wallet-button" disabled={connecting} onClick={() => void connect()}><Icon name="wallet"/>{connecting ? "Check your wallet…" : connectLabel(account)}</button>{walletMenuOpen && <div className="wallet-menu"><strong>Choose a wallet</strong>{wallets.map((wallet) => <button key={wallet.id} onClick={() => void connect(wallet)}><Icon name="wallet"/>{wallet.name}</button>)}</div>}</div></div>
       </header>
 
       {view !== "docs" && <div className="system-rail" aria-label="Prime Server system status"><div><span className="live-dot"/><small>NETWORK</small><strong>Coston2</strong></div><i/><div><Icon name="cube"/><small>REGISTRY</small><strong>{data.source === "coston2" ? "Live" : "Not configured"}</strong></div><i/><div><Icon name="server"/><small>PROVIDERS</small><strong>{data.stats.activeProviders}/{data.stats.providers} active</strong></div><i/><div><Icon name="pulse"/><small>PRIME RPC</small><strong>{apiConfigured ? "Ready" : "Local"}</strong></div></div>}
 
       <div className="page">
-        {view !== "docs" && <div className={`preview-banner ${data.source === "coston2" ? "live" : ""}`}><span>{sourceLabel.toUpperCase()}</span> {sourceMessage}{liveMode && <button className="banner-action" onClick={() => void refresh()} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>}</div>}
+        {view !== "docs" && <div className={`preview-banner ${data.source === "coston2" ? "live" : ""}`}><span>{sourceLabel.toUpperCase()}</span> {sourceMessage}{liveMode && <button className="banner-action" onClick={() => void refresh()} disabled={refreshing}>{refreshing ? "Refreshing…" : "Refresh"}</button>}</div>}
         {view !== "docs" && dataError && <div className="data-error"><Icon name="pulse"/><span>{dataError}</span><button onClick={() => void refresh()}>Retry</button></div>}
 
         {view === "overview" && <Overview data={data} visibleBlobs={visibleBlobs} visibleEvents={visibleEvents} loading={loading} onOpenBlob={setSelectedBlob} onView={openView} onStore={() => setUploadOpen(true)}/>}
@@ -194,11 +178,11 @@ export function App() {
       </div>
     </main>
 
-    {uploadOpen && <UploadPanel account={account} onConnect={connect} onClose={() => setUploadOpen(false)} onCompleted={() => { void refresh(); }}/>}
+    {uploadOpen && <UploadPanel account={account} provider={walletProvider} onConnect={() => void connect()} onClose={() => setUploadOpen(false)} onCompleted={() => { void refresh(); }}/>}
     {selectedBlob && <BlobDetail blob={selectedBlob} live={data.source === "coston2"} onClose={() => setSelectedBlob(undefined)}/>}
     {selectedProvider && <ProviderDetail provider={selectedProvider} live={data.source === "coston2"} onClose={() => setSelectedProvider(undefined)}/>}
     {notice && <div className="toast" onClick={() => setNotice(undefined)}>{notice}<Icon name="close"/></div>}
-  </div>;
+  </div></WalletProviderContext.Provider>;
 }
 
 function Overview({ data, visibleBlobs, visibleEvents, loading, onOpenBlob, onView, onStore }: { data: ExplorerData; visibleBlobs: ExplorerBlob[]; visibleEvents: ExplorerEvent[]; loading: boolean; onOpenBlob: (blob: ExplorerBlob) => void; onView: (view: View) => void; onStore: () => void }) {
@@ -265,7 +249,9 @@ function ProviderDetail({ provider, live, onClose }: { provider: ExplorerProvide
 
 type ComputeState = "idle" | "preparing" | "prepared" | "registering" | "uploading" | "computing" | "verified" | "error";
 
-function ConfidentialComputeView({ account, onConnect, onCompleted }: { account?: Address; onConnect: () => void; onCompleted: () => void }) {
+function ConfidentialComputeView({ account, provider: selectedProvider, onConnect, onCompleted }: { account?: Address; provider?: InjectedProvider; onConnect: () => void; onCompleted: () => void }) {
+  const contextProvider = useContext(WalletProviderContext);
+  const provider = selectedProvider || contextProvider;
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File>();
   const [name, setName] = useState("");
@@ -318,7 +304,7 @@ function ConfidentialComputeView({ account, onConnect, onCompleted }: { account?
 
   async function prepare() {
     if (!file || !account) return;
-    if (!window.ethereum || !registryAddress) {
+    if (!provider || !registryAddress) {
       setError("Connect a wallet and configure the live Coston2 registry before preparing confidential storage.");
       setState("error");
       return;
@@ -326,8 +312,8 @@ function ConfidentialComputeView({ account, onConnect, onCompleted }: { account?
     try {
       setState("preparing");
       setError(undefined);
-      await ensureCoston2Network(window.ethereum);
-      const wallet = createWalletClient({ account, chain: coston2, transport: custom(window.ethereum) });
+      await ensureCoston2Network(provider);
+      const wallet = createWalletClient({ account, chain: coston2, transport: custom(provider) });
       const sessionToken = await authenticate(account, wallet);
       const infoResponse = await fetch(`${apiUrl}/fcc/info`, { headers: { authorization: `Bearer ${sessionToken}` } });
       if (!infoResponse.ok) throw new Error((await infoResponse.json()).error || "FCC simulated TEE is not configured");
@@ -341,7 +327,7 @@ function ConfidentialComputeView({ account, onConnect, onCompleted }: { account?
       }));
       setState("prepared");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
+      setError(walletErrorMessage(caught));
       setState("error");
     }
   }
@@ -366,7 +352,7 @@ function ConfidentialComputeView({ account, onConnect, onCompleted }: { account?
   }
 
   async function registerAndCompute() {
-    if (!prepared || !account || !window.ethereum || !registryAddress || !fccSenderAddress || !fccVerifierAddress) {
+    if (!prepared || !account || !provider || !registryAddress || !fccSenderAddress || !fccVerifierAddress) {
       setError("Configure the registry, FCC sender, and FCC result verifier addresses before running compute.");
       setState("error");
       return;
@@ -374,8 +360,8 @@ function ConfidentialComputeView({ account, onConnect, onCompleted }: { account?
     let interval: number | undefined;
     try {
       setError(undefined);
-      await ensureCoston2Network(window.ethereum);
-      const wallet = createWalletClient({ account, chain: coston2, transport: custom(window.ethereum) });
+      await ensureCoston2Network(provider);
+      const wallet = createWalletClient({ account, chain: coston2, transport: custom(provider) });
       const sessionToken = await authenticate(account, wallet);
       setState("registering");
       const rawQuote = await publicClient.readContract({
@@ -429,7 +415,7 @@ function ConfidentialComputeView({ account, onConnect, onCompleted }: { account?
       const status = await readProgress(prepared);
       if (status !== 1 && status !== 3) throw new Error("Confidential ciphertext upload did not finalize");
       setState("computing");
-      await ensureCoston2Network(window.ethereum);
+      await ensureCoston2Network(provider);
       const request = await authorizeAndRequestCompute({
         publicClient,
         walletClient: wallet,
@@ -450,7 +436,7 @@ function ConfidentialComputeView({ account, onConnect, onCompleted }: { account?
       if (String(computedResult.requestId).toLowerCase() !== request.requestId.toLowerCase()) throw new Error("FCC result request binding mismatch");
       if (String(computedResult.blobId).toLowerCase() !== prepared.blobId.toLowerCase()) throw new Error("FCC result blob binding mismatch");
       setResult(computedResult);
-      await ensureCoston2Network(window.ethereum);
+      await ensureCoston2Network(provider);
       const submitHash = await wallet.writeContract({
         address: fccVerifierAddress,
         abi: fccVerifierAbi,
@@ -464,7 +450,7 @@ function ConfidentialComputeView({ account, onConnect, onCompleted }: { account?
       setState("verified");
       onCompleted();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
+      setError(walletErrorMessage(caught));
       setState("error");
     } finally {
       if (interval !== undefined) window.clearInterval(interval);
@@ -475,7 +461,7 @@ function ConfidentialComputeView({ account, onConnect, onCompleted }: { account?
   return <><section className="view-header"><div><div className="eyebrow">CONFIDENTIAL COMPUTE</div><h1>Compute without releasing the file.</h1><p>Encrypt in the browser, distribute ciphertext through Prime Server, and return only an approved result from the FCC simulated TEE.</p></div><span className="view-badge"><Icon name="shield"/>Compute-only access</span></section><section className="panel compute-panel"><div className="stepper">{["Prepare", "Register", "Store ciphertext", "Run FCC", "Verified"].map((label, index) => <div className={index <= stage ? "reached" : ""} key={label}><span>{index < stage ? <Icon name="check"/> : index + 1}</span><small>{label}</small></div>)}</div>{!prepared && <div className="upload-form"><button className="drop-zone" onClick={() => inputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); choose(event.dataTransfer.files[0]); }}><Icon name="shield"/><strong>{file ? file.name : "Choose a JSON file or drop it here"}</strong><span>{file ? `${formatBytes(file.size)} · encrypted before upload` : "Plaintext stays in this browser"}</span></button><input hidden ref={inputRef} type="file" accept="application/json,.json" onChange={(event) => choose(event.target.files?.[0])}/><label>Operation<select value={operation} onChange={(event) => setOperation(event.target.value)}><option value="json_field_sum">Sum a numeric field</option><option value="json_field_count">Count records with a field</option><option value="sha256">Return a SHA-256 digest</option></select></label>{operation !== "sha256" && <label>JSON field<input value={field} onChange={(event) => setField(event.target.value)} placeholder="amount"/></label>}<div className="recovery-config"><span><Icon name="shield"/></span><div><strong>Encrypted 2-of-4 storage</strong><p>The FCC receives a sealed key envelope and ciphertext. The result contains no file plaintext.</p></div><b>Required</b></div><button className="primary wide" disabled={!file || !account || state === "preparing"} onClick={() => void prepare()}>{!account ? "Connect wallet to prepare" : state === "preparing" ? "Encrypting and preparing…" : "Prepare confidential upload"}<Icon name="arrow"/></button></div>}{prepared && <div className="prepared-view"><div className="file-summary"><span className="file-icon f0"><Icon name="shield"/></span><div><strong>{prepared.name}</strong><small>{formatBytes(prepared.originalSize)} plaintext · {formatBytes(prepared.size)} ciphertext</small></div><button onClick={() => { setPrepared(undefined); setState("idle"); setResult(undefined); }}>Change</button></div><div className="proof-details"><Detail label="Blob ID" value={prepared.blobId}/><Detail label="Ciphertext commitment" value={prepared.commitment}/><Detail label="Policy" value="Confidential · compute only"/><Detail label="Input operation" value={operation === "sha256" ? "SHA-256" : `${operation}(${field})`}/></div>{error && <div className="error-box">{error}</div>}{result && <div className="success-box"><Icon name="check"/><div><strong>Verified FCC result</strong><p>{JSON.stringify(result.result)}</p>{resultTx && <a href={`${explorer}/tx/${resultTx}`} target="_blank" rel="noreferrer">Open verification transaction <Icon name="external"/></a>}</div></div>}<div className="live-timeline"><Timeline title="Browser preparation" text="Plaintext encrypted and Clay commitment computed locally" status="done"/><Timeline title="Coston2 registration" text={registrationTx ? shortHex(registrationTx, 14, 8) : "Native payment and policy registration required"} status={registrationTx ? "done" : "waiting"} link={registrationTx ? `${explorer}/tx/${registrationTx}` : undefined}/><Timeline title="Ciphertext placement" text={`${acks}/4 provider acknowledgements`} status={state === "uploading" ? "working" : stage >= 2 ? "done" : "waiting"}/><Timeline title="FCC signed result" text={instructionId ? shortHex(instructionId, 14, 8) : "Runs after ciphertext finalizes"} status={state === "computing" ? "working" : stage >= 4 ? "done" : "waiting"}/></div>{state === "verified" ? <div className="success-box"><Icon name="check"/><div><strong>Confidential operation complete</strong><p>The result was verified on Coston2. The application never received plaintext from the compute path.</p></div></div> : account ? <button className="primary wide" disabled={state === "registering" || state === "uploading" || state === "computing"} onClick={() => void registerAndCompute()}>{state === "registering" ? "Registering confidential policy…" : state === "uploading" ? `Storing ciphertext · ${acks}/4 acknowledged` : state === "computing" ? "Waiting for the signed FCC result…" : "Register, store, and compute"}<Icon name="arrow"/></button> : <button className="primary wide" onClick={onConnect}><Icon name="wallet"/>Connect wallet to continue</button>}</div>}</section></>;
 }
 
-function UploadPanel({ account, onConnect, onClose, onCompleted }: { account?: Address; onConnect: () => void; onClose: () => void; onCompleted: () => void }) {
+function UploadPanel({ account, provider, onConnect, onClose, onCompleted }: { account?: Address; provider?: InjectedProvider; onConnect: () => void; onClose: () => void; onCompleted: () => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<"standard" | "private_compute">("standard");
   const [file, setFile] = useState<File>();
@@ -506,7 +492,7 @@ function UploadPanel({ account, onConnect, onClose, onCompleted }: { account?: A
   async function prepare() {
     if (!file) return;
     try { setError(undefined); setState("preparing"); setPrepared(await prepareFile(file, name, Math.floor(Date.now() / 1000) + days * 86400)); setState("prepared"); }
-    catch (error) { setError(error instanceof Error ? error.message : String(error)); setState("error"); }
+    catch (error) { setError(walletErrorMessage(error)); setState("error"); }
   }
 
   async function authenticate(address: Address, wallet: ReturnType<typeof createWalletClient>) {
@@ -538,12 +524,12 @@ function UploadPanel({ account, onConnect, onClose, onCompleted }: { account?: A
 
   async function registerAndUpload() {
     if (!prepared || !file || !account) return;
-    if (!window.ethereum || !registryAddress) { setError("Set VITE_REGISTRY_ADDRESS and connect an injected wallet before using the live flow."); setState("error"); return; }
+    if (!provider || !registryAddress) { setError("Set VITE_REGISTRY_ADDRESS and connect an injected wallet before using the live flow."); setState("error"); return; }
     let interval: number | undefined;
     try {
       setError(undefined); setState("registering");
-      await ensureCoston2Network(window.ethereum);
-      const wallet = createWalletClient({ account, chain: coston2, transport: custom(window.ethereum) });
+      await ensureCoston2Network(provider);
+      const wallet = createWalletClient({ account, chain: coston2, transport: custom(provider) });
       const hash = await wallet.writeContract({ address: registryAddress, abi: registryAbi, functionName: "createBlobNamed", args: [prepared.blobId, prepared.name, prepared.commitment, BigInt(prepared.size), prepared.chunkSize, prepared.dataShards, prepared.totalShards, BigInt(prepared.expiresAt)] });
       setRegistrationTx(hash);
       const receipt = await publicClient.waitForTransactionReceipt({ hash });
@@ -559,7 +545,7 @@ function UploadPanel({ account, onConnect, onClose, onCompleted }: { account?: A
       const logs = await publicClient.getLogs({ address: registryAddress, event: blobFinalizedEvent, args: { blobId: prepared.blobId }, fromBlock: receipt.blockNumber });
       if (logs.at(-1)?.transactionHash) setFinalizationTx(logs.at(-1)!.transactionHash);
       onCompleted();
-    } catch (error) { setError(error instanceof Error ? error.message : String(error)); setState("error"); }
+    } catch (error) { setError(walletErrorMessage(error)); setState("error"); }
     finally { if (interval !== undefined) window.clearInterval(interval); }
   }
 
