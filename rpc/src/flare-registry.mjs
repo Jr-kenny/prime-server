@@ -3,6 +3,7 @@ import {
   createPublicClient,
   createWalletClient,
   defineChain,
+  fallback,
   http,
   publicActions,
   walletActions
@@ -16,19 +17,35 @@ function normalizePrivateKey(value) {
   return value.startsWith("0x") ? value : `0x${value}`;
 }
 
+const COSTON2_FALLBACK_RPC_URL = "https://falling-skilled-uranium.flare-coston2.quiknode.pro/ext/bc/C/rpc";
+
+function resolveRpcUrls(rpcUrl, chainId) {
+  const urls = String(rpcUrl).split(",").map((url) => url.trim()).filter(Boolean);
+  if (chainId === 114 && !urls.includes(COSTON2_FALLBACK_RPC_URL)) urls.push(COSTON2_FALLBACK_RPC_URL);
+  return urls;
+}
+
+function createRpcTransport(rpcUrl, chainId) {
+  return fallback(resolveRpcUrls(rpcUrl, chainId).map((url) => http(url, {
+    retryCount: 1,
+    retryDelay: 500,
+    timeout: 12_000
+  })), { retryCount: 2, retryDelay: 500 });
+}
+
 export function createCoston2Chain(rpcUrl, chainId = 114) {
   return defineChain({
     id: chainId,
     name: chainId === 114 ? "Flare Coston2" : "Prime Server local EVM",
     nativeCurrency: { name: "Coston2 Flare", symbol: "C2FLR", decimals: 18 },
-    rpcUrls: { default: { http: [rpcUrl] } }
+    rpcUrls: { default: { http: resolveRpcUrls(rpcUrl, chainId) } }
   });
 }
 
 export function createCoston2Wallet({ privateKey, rpcUrl, chainId = 114 } = {}) {
   const chain = createCoston2Chain(rpcUrl, chainId);
   const account = privateKeyToAccount(normalizePrivateKey(privateKey));
-  const wallet = createWalletClient({ account, chain, transport: http(rpcUrl) })
+  const wallet = createWalletClient({ account, chain, transport: createRpcTransport(rpcUrl, chainId) })
     .extend(publicActions)
     .extend(walletActions);
   return { account, chain, wallet };
@@ -44,14 +61,14 @@ export function createFlareRegistry({
   if (!address) throw new Error("PrimeServerRegistry address is required");
   const chain = createCoston2Chain(rpcUrl, chainId);
   const deployerAccount = privateKeyToAccount(normalizePrivateKey(deployerPrivateKey));
-  const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
-  const deployerWallet = createWalletClient({ account: deployerAccount, chain, transport: http(rpcUrl) })
+  const publicClient = createPublicClient({ chain, transport: createRpcTransport(rpcUrl, chainId) });
+  const deployerWallet = createWalletClient({ account: deployerAccount, chain, transport: createRpcTransport(rpcUrl, chainId) })
     .extend(publicActions)
     .extend(walletActions);
   const providerWallets = new Map(
     Object.entries(providerPrivateKeys).map(([providerId, privateKey]) => {
       const account = privateKeyToAccount(normalizePrivateKey(privateKey));
-      const wallet = createWalletClient({ account, chain, transport: http(rpcUrl) })
+      const wallet = createWalletClient({ account, chain, transport: createRpcTransport(rpcUrl, chainId) })
         .extend(publicActions)
         .extend(walletActions);
       return [providerId, { account, wallet }];

@@ -85,7 +85,7 @@ test("event indexer resumes from a block cursor and parses Prime Server events",
     });
     for (let index = 0; index < 4; index += 1) await registry.assignShard(blobId, index, `provider-${index + 1}`);
 
-    const indexer = new PrimeServerEventIndexer({ publicClient, address, fromBlock: 1n, maxBlockRange: 3n });
+    const indexer = new PrimeServerEventIndexer({ publicClient, address, fromBlock: 1n, maxBlockRange: 3n, maxRangesPerPoll: 20 });
     const first = await indexer.poll();
     assert.equal(first.filter((event) => event.eventName === "ProviderRegistered").length, 4);
     assert.equal(first.filter((event) => event.eventName === "BlobCreated").length, 1);

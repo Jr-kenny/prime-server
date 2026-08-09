@@ -50,6 +50,50 @@ test("operational cursor survives an indexer restart and respects bounded log wi
   }
 });
 
+test("event indexer checkpoints successful windows before an RPC failure", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "prime-server-indexer-checkpoint-"));
+  const statePath = path.join(root, "state.json");
+  const windows = [];
+  let failAtSeven = true;
+  const publicClient = {
+    async getBlockNumber() { return 20n; },
+    async getLogs({ fromBlock, toBlock }) {
+      windows.push([fromBlock, toBlock]);
+      if (failAtSeven && fromBlock === 7n) throw new Error("simulated RPC rate limit");
+      return [];
+    }
+  };
+
+  try {
+    const firstStore = new JsonOperationalStore(statePath);
+    const firstIndexer = new PrimeServerEventIndexer({
+      publicClient,
+      address: "0x0000000000000000000000000000000000000001",
+      fromBlock: 1n,
+      maxBlockRange: 3n,
+      maxRangesPerPoll: 4,
+      stateStore: firstStore
+    });
+    await assert.rejects(() => firstIndexer.poll(), /simulated RPC rate limit/);
+    assert.equal(await firstStore.getCursor(firstIndexer.cursorKey), "7");
+
+    failAtSeven = false;
+    const secondIndexer = new PrimeServerEventIndexer({
+      publicClient,
+      address: firstIndexer.address,
+      fromBlock: 1n,
+      maxBlockRange: 3n,
+      maxRangesPerPoll: 4,
+      stateStore: new JsonOperationalStore(statePath)
+    });
+    await secondIndexer.poll();
+    assert.deepEqual(windows, [[1n, 3n], [4n, 6n], [7n, 9n], [7n, 9n], [10n, 12n], [13n, 15n], [16n, 18n]]);
+    assert.equal(secondIndexer.nextBlock, 19n);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("recovery jobs survive failure, retry, completion, and coordinator restart", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "prime-server-recovery-"));
   const statePath = path.join(root, "state.json");

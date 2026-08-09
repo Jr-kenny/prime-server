@@ -163,6 +163,9 @@ export const coston2 = {
   id: 114,
   name: "Flare Coston2",
   nativeCurrency: { name: "Coston2 Flare", symbol: "C2FLR", decimals: 18 },
-  rpcUrls: { default: { http: [import.meta.env.VITE_COSTON2_RPC_URL || "https://coston2-api.flare.network/ext/C/rpc"] } },
+  rpcUrls: { default: { http: [
+    import.meta.env.VITE_COSTON2_RPC_URL || "https://coston2-api.flare.network/ext/C/rpc",
+    "https://falling-skilled-uranium.flare-coston2.quiknode.pro/ext/bc/C/rpc"
+  ] } },
   blockExplorers: { default: { name: "Coston2 Explorer", url: "https://coston2-explorer.flare.network" } }
 } as const;

@@ -166,6 +166,7 @@ async function main() {
   let rpc;
   let stopping = false;
   let pollTimer;
+  let pollingEvents = false;
 
   try {
     for (let index = 0; index < providerIds.length; index += 1) {
@@ -236,6 +237,8 @@ async function main() {
     await new Promise((resolve) => rpc.server.listen(rpcPort, rpcHost, resolve));
 
     const pollEvents = async () => {
+      if (pollingEvents) return;
+      pollingEvents = true;
       try {
         const events = await indexer.poll();
         if (events.length > 0) {
@@ -243,6 +246,8 @@ async function main() {
         }
       } catch (error) {
         console.error(JSON.stringify({ event: "flare_event_indexer_error", error: error instanceof Error ? error.message : String(error) }));
+      } finally {
+        pollingEvents = false;
       }
     };
     await pollEvents();

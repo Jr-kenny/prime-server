@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { createPublicClient, createWalletClient, custom, http, keccak256, stringToHex, zeroHash, type Address } from "viem";
+import { createPublicClient, createWalletClient, custom, keccak256, stringToHex, zeroHash, type Address } from "viem";
 import { Icon } from "./icons";
 import { DocsPage } from "./DocsPage";
 import { prepareConfidentialFile, type PreparedConfidentialBlob } from "./confidential";
@@ -22,6 +22,7 @@ import {
   type Placement
 } from "./explorer";
 import { ensureCoston2Network, walletErrorMessage, watchInjectedWallets, type InjectedProvider, type WalletOption } from "./wallet";
+import { coston2Transport } from "./coston2-rpc";
 
 declare global { interface Window { ethereum?: InjectedProvider } }
 
@@ -50,7 +51,7 @@ const WalletProviderContext = createContext<InjectedProvider | undefined>(undefi
 
 export function App() {
   const initialExplorerData = useMemo(() => liveMode && registryAddress ? readExplorerCache(registryAddress) : undefined, []);
-  const initialExplorerCacheFresh = Boolean(initialExplorerData?.cachedAt && Date.now() - initialExplorerData.cachedAt < 60_000);
+  const initialExplorerCacheFresh = Boolean(initialExplorerData?.cachedAt && Date.now() - initialExplorerData.cachedAt < 5 * 60_000);
   const [account, setAccount] = useState<Address>();
   const [wallets, setWallets] = useState<WalletOption[]>([]);
   const [walletProvider, setWalletProvider] = useState<InjectedProvider>();
@@ -69,11 +70,7 @@ export function App() {
   const hasLoadedData = useRef(Boolean(initialExplorerData));
   const publicClient = useMemo(() => createPublicClient({
     chain: coston2,
-    transport: http(coston2.rpcUrls.default.http[0], {
-      retryCount: 4,
-      retryDelay: 750,
-      timeout: 20_000
-    })
+    transport: coston2Transport()
   }), []);
 
   const refresh = useCallback(async () => {
@@ -286,7 +283,7 @@ function ConfidentialComputeView({ account, provider: selectedProvider, onConnec
   const [acks, setAcks] = useState(0);
   const publicClient = useMemo(() => createPublicClient({
     chain: coston2,
-    transport: http(coston2.rpcUrls.default.http[0], { retryCount: 4, retryDelay: 750, timeout: 20_000 })
+    transport: coston2Transport()
   }), []);
 
   function choose(selected?: File) {
@@ -501,11 +498,7 @@ function UploadPanel({ account, provider, onConnect, onClose, onCompleted }: { a
   const [token, setToken] = useState<string>();
   const publicClient = useMemo(() => createPublicClient({
     chain: coston2,
-    transport: http(coston2.rpcUrls.default.http[0], {
-      retryCount: 4,
-      retryDelay: 750,
-      timeout: 20_000
-    })
+    transport: coston2Transport()
   }), []);
 
   async function choose(selected?: File) {
@@ -533,7 +526,14 @@ function UploadPanel({ account, provider, onConnect, onClose, onCompleted }: { a
   async function readProgress(blob: PreparedBlob) {
     if (!registryAddress) return 0;
     const raw = await publicClient.readContract({ address: registryAddress, abi: registryAbi, functionName: "blobs", args: [blob.blobId] }) as readonly unknown[];
-    const count = Number(raw[6]); setAcks(count);
+    const count = Number(raw[6]);
+    setAcks(count);
+    setPlacements(Array.from({ length: blob.totalShards }, (_, shard) => ({
+      shard,
+      providerId: shard + 1,
+      provider: `Provider ${shard + 1}`,
+      acknowledged: shard < count
+    })));
     return Number(raw[7]);
   }
 
@@ -545,16 +545,17 @@ function UploadPanel({ account, provider, onConnect, onClose, onCompleted }: { a
       setError(undefined); setState("registering");
       await ensureCoston2Network(provider);
       const wallet = createWalletClient({ account, chain: coston2, transport: custom(provider) });
+      const walletPublicClient = createPublicClient({ chain: coston2, transport: custom(provider) });
       let uploadBlob = prepared;
       let registrationBlock: bigint | undefined;
-      const existingBlobId = await publicClient.readContract({
+      const existingBlobId = await walletPublicClient.readContract({
         address: registryAddress,
         abi: registryAbi,
         functionName: "blobIdByOwnerNameHash",
         args: [account, keccak256(stringToHex(prepared.name))]
       }) as `0x${string}`;
       if (existingBlobId !== zeroHash) {
-        const raw = await publicClient.readContract({ address: registryAddress, abi: registryAbi, functionName: "blobs", args: [existingBlobId] }) as readonly unknown[];
+        const raw = await walletPublicClient.readContract({ address: registryAddress, abi: registryAbi, functionName: "blobs", args: [existingBlobId] }) as readonly unknown[];
         const status = Number(raw[7]);
         const matchesPreparedFile = String(raw[0]).toLowerCase() === account.toLowerCase()
           && String(raw[1]).toLowerCase() === prepared.commitment.toLowerCase()
@@ -569,13 +570,14 @@ function UploadPanel({ account, provider, onConnect, onClose, onCompleted }: { a
       } else {
         const hash = await wallet.writeContract({ address: registryAddress, abi: registryAbi, functionName: "createBlobNamed", args: [prepared.blobId, prepared.name, prepared.commitment, BigInt(prepared.size), prepared.chunkSize, prepared.dataShards, prepared.totalShards, BigInt(prepared.expiresAt)] });
         setRegistrationTx(hash);
-        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+        const receipt = await walletPublicClient.waitForTransactionReceipt({ hash });
         if (receipt.status !== "success") throw new Error("Blob registration reverted on Coston2");
         registrationBlock = receipt.blockNumber;
       }
       setState("registered");
       const sessionToken = await authenticate(account, wallet);
       setState("uploading");
+      await readProgress(uploadBlob).catch(() => undefined);
       let polling = false;
       interval = window.setInterval(() => {
         if (polling) return;
