@@ -2,15 +2,15 @@
   "rewrites": [
     {
       "source": "/prime-api",
-      "destination": "http://44.223.84.35:8080/prime/v1"
+      "destination": "http://100.61.3.35:8080/prime/v1"
     },
     {
       "source": "/prime-api/:path*",
-      "destination": "http://44.223.84.35:8080/prime/v1/:path*"
+      "destination": "http://100.61.3.35:8080/prime/v1/:path*"
     },
     {
       "source": "/prime-health",
-      "destination": "http://44.223.84.35:8080/health"
+      "destination": "http://100.61.3.35:8080/health"
     }
   ]
 }

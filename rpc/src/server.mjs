@@ -684,8 +684,13 @@ async function placeEncodedBlob({ input, encoded, blobId, providers, registry })
 
   const receipts = [];
   for (let shardIndex = 0; shardIndex < encoded.chunks.length; shardIndex += 1) {
-    const provider = providers[shardIndex];
-    await registry.assignShard(blobId, shardIndex, provider.providerId);
+    const placedProviderId = blob.placement[String(shardIndex)] ?? blob.placement[shardIndex];
+    const hasExistingProvider = placedProviderId !== undefined && placedProviderId !== null && String(placedProviderId) !== "0";
+    const provider = hasExistingProvider
+      ? providers.find((candidate) => String(candidate.providerId) === String(placedProviderId))
+      : providers[shardIndex];
+    if (!provider) throw new Error(`assigned provider ${placedProviderId} is unavailable for shard ${shardIndex}`);
+    if (!hasExistingProvider) await registry.assignShard(blobId, shardIndex, provider.providerId);
     const ackContext = acknowledgementContext({
       registry,
       blob,
@@ -703,16 +708,26 @@ async function placeEncodedBlob({ input, encoded, blobId, providers, registry })
       encoded.chunkCommitments[shardIndex],
       ackContext
     );
-    await registry.acknowledgeShard({
-      blobId,
-      shardIndex,
-      providerId: provider.providerId,
-      commitment: receipt.commitment,
-      size: receipt.size,
-      ackContext,
-      signedPayload: receipt.signedPayload,
-      signature: receipt.signature
-    });
+    const existingAcknowledgement = blob.acknowledgements.find((acknowledgement) =>
+      Number(acknowledgement.shardIndex) === shardIndex
+      && String(acknowledgement.providerId) === String(provider.providerId)
+    );
+    if (existingAcknowledgement) {
+      if (normalizeHex(existingAcknowledgement.commitment) !== normalizeHex(receipt.commitment) || Number(existingAcknowledgement.size) !== Number(receipt.size)) {
+        throw new Error(`existing acknowledgement does not match shard ${shardIndex}`);
+      }
+    } else {
+      await registry.acknowledgeShard({
+        blobId,
+        shardIndex,
+        providerId: provider.providerId,
+        commitment: receipt.commitment,
+        size: receipt.size,
+        ackContext,
+        signedPayload: receipt.signedPayload,
+        signature: receipt.signature
+      });
+    }
     receipts.push({
       providerId: provider.providerId,
       shardIndex,

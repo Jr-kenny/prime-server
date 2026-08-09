@@ -17,6 +17,7 @@ readonly LOG_GROUP="/prime-server/node"
 readonly CONFIG_PARAM="/prime-server/coston2/runtime-env"
 readonly IDENTITIES_PARAM="/prime-server/coston2/provider-identities"
 readonly APP_NAME="prime-server"
+readonly ELASTIC_IP_NAME="prime-server-public"
 readonly MARKET_TYPE="${PRIME_SERVER_MARKET_TYPE:-on-demand}"
 
 case "$MARKET_TYPE" in
@@ -216,8 +217,10 @@ existing_instance_id="$(aws ec2 describe-instances --region "$REGION" \
 
 if [[ -n "$existing_instance_id" ]]; then
   instance_id="$existing_instance_id"
+  reuse_instance=true
   echo "Using existing Prime Server instance $instance_id"
 else
+  reuse_instance=false
   run_instance_args=(
     --region "$REGION"
     --image-id "$ami_id"
@@ -241,7 +244,65 @@ fi
 
 aws ec2 wait instance-running --region "$REGION" --instance-ids "$instance_id"
 
-public_ip="$(aws ec2 describe-instances --region "$REGION" --instance-ids "$instance_id" --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)"
+if [[ "$reuse_instance" == "true" ]]; then
+  for attempt in $(seq 1 60); do
+    ping_status="$(aws ssm describe-instance-information \
+      --region "$REGION" \
+      --filters Key=InstanceIds,Values="$instance_id" \
+      --query 'InstanceInformationList[0].PingStatus' --output text)"
+    if [[ "$ping_status" == "Online" ]]; then
+      break
+    fi
+    if [[ "$attempt" == "60" ]]; then
+      echo "Prime Server instance did not become available through SSM." >&2
+      exit 1
+    fi
+    sleep 5
+  done
+  command_input="$tmp_dir/ssm-deploy-command.json"
+  jq -n \
+    --arg instance "$instance_id" \
+    --rawfile command "$user_data" \
+    '{InstanceIds:[$instance],DocumentName:"AWS-RunShellScript",Comment:"Deploy Prime Server container",Parameters:{commands:[$command]}}' \
+    > "$command_input"
+  command_id="$(aws ssm send-command \
+    --region "$REGION" \
+    --cli-input-json "file://$command_input" \
+    --query 'Command.CommandId' --output text)"
+  if ! aws ssm wait command-executed \
+    --region "$REGION" \
+    --command-id "$command_id" \
+    --instance-id "$instance_id"; then
+    aws ssm get-command-invocation \
+      --region "$REGION" \
+      --command-id "$command_id" \
+      --instance-id "$instance_id" \
+      --query '{Status:Status,Output:StandardOutputContent,Error:StandardErrorContent}' \
+      --output json >&2
+    exit 1
+  fi
+fi
+aws ec2 create-tags \
+  --region "$REGION" \
+  --resources "$instance_id" \
+  --tags Key=ImageTag,Value="$IMAGE_TAG" Key=MarketType,Value="$MARKET_TYPE"
+
+allocation_id="$(aws ec2 describe-addresses --region "$REGION" \
+  --filters Name=tag:Application,Values="$APP_NAME" Name=tag:ManagedBy,Values=prime-server-deploy \
+  --query 'Addresses[0].AllocationId' --output text)"
+if [[ -z "$allocation_id" || "$allocation_id" == "None" ]]; then
+  allocation_id="$(aws ec2 allocate-address \
+    --region "$REGION" \
+    --domain vpc \
+    --tag-specifications "ResourceType=elastic-ip,Tags=[{Key=Name,Value=$ELASTIC_IP_NAME},{Key=Application,Value=$APP_NAME},{Key=ManagedBy,Value=prime-server-deploy}]" \
+    --query AllocationId --output text)"
+fi
+aws ec2 associate-address \
+  --region "$REGION" \
+  --allocation-id "$allocation_id" \
+  --instance-id "$instance_id" \
+  --allow-reassociation >/dev/null
+public_ip="$(aws ec2 describe-addresses --region "$REGION" --allocation-ids "$allocation_id" --query 'Addresses[0].PublicIp' --output text)"
 echo "Prime Server instance: $instance_id"
 echo "Prime Server market type: $MARKET_TYPE"
 echo "Prime Server public IP: $public_ip"
@@ -264,6 +325,7 @@ jq -n \
   --arg account "$ACCOUNT_ID" \
   --arg instance "$instance_id" \
   --arg public_ip "$public_ip" \
+  --arg allocation_id "$allocation_id" \
   --arg market_type "$MARKET_TYPE" \
   --arg image "$IMAGE_URI:$IMAGE_TAG" \
   --arg role "$ROLE_NAME" \
@@ -272,7 +334,7 @@ jq -n \
   --arg registry "$(awk -F= '$1=="PRIME_SERVER_REGISTRY_ADDRESS" {print substr($0,index($0,"=")+1)}' "$ENV_FILE")" \
   --arg deployed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --slurpfile health "$tmp_dir/health.json" \
-  '{region:$region,account:$account,instanceId:$instance,publicIp:$public_ip,marketType:$market_type,image:$image,role:$role,instanceProfile:$profile,securityGroupId:$security_group,registryAddress:$registry,deployedAt:$deployed_at,health:$health[0]}' \
+  '{region:$region,account:$account,instanceId:$instance,publicIp:$public_ip,elasticIpAllocationId:$allocation_id,marketType:$market_type,image:$image,role:$role,instanceProfile:$profile,securityGroupId:$security_group,registryAddress:$registry,deployedAt:$deployed_at,health:$health[0]}' \
   > "$deployment_state"
 chmod 0600 "$deployment_state"
 

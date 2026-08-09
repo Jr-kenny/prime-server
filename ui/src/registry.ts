@@ -59,6 +59,11 @@ export const registryAbi = [
     outputs: [{ name: "blobName", type: "string" }]
   },
   {
+    type: "function", name: "blobIdByOwnerNameHash", stateMutability: "view",
+    inputs: [{ name: "owner", type: "address" }, { name: "nameHash", type: "bytes32" }],
+    outputs: [{ name: "blobId", type: "bytes32" }]
+  },
+  {
     type: "function", name: "getBlobPolicy", stateMutability: "view",
     inputs: [{ name: "blobId", type: "bytes32" }],
     outputs: [{ name: "policy", type: "tuple", components: [

@@ -9,11 +9,11 @@ The deployment uses:
 - Systems Manager Session Manager instead of SSH.
 - IMDSv2 required, with a two-hop limit for container access.
 - SSM Parameter Store SecureString values for the Coston2 environment and provider identities.
-- A security group with only TCP `8080` open to the public RPC.
+- A stable Elastic IP and a security group with only TCP `8080` open to the public RPC.
 - A CloudWatch log group at `/prime-server/node` with fourteen-day retention.
 - The developer gateway at `/prime/v1`, using wallet-signature sessions and the ignored `PRIME_SERVER_AUTH_SECRET`.
 
-The normal market type is on-demand. If the account's on-demand vCPU quota is temporarily constrained, run with `PRIME_SERVER_MARKET_TYPE=spot bash deploy/aws/deploy.sh`. Spot mode uses stop-on-interruption so the encrypted volume and operational state remain attached, but the public IP can change after a stop and the node is subject to Spot capacity reclamation.
+The normal market type is on-demand. If the account's on-demand vCPU quota is temporarily constrained, run with `PRIME_SERVER_MARKET_TYPE=spot bash deploy/aws/deploy.sh`. Spot mode uses stop-on-interruption so the encrypted volume and operational state remain attached. The deploy script reassociates the node's stable Elastic IP after a restart. The node remains subject to Spot capacity reclamation.
 
 The deployment intentionally keeps payment extension work out of the node. The upgraded developer gateway requires the user-owned registry contract version that supports coordinator-created blobs. Set `PRIME_SERVER_PUBLIC_BASE_URL` after a DNS name is available, for example `https://api.primeserver.example/prime/v1`.
 

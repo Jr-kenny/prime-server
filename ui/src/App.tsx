@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { createPublicClient, createWalletClient, custom, http, type Address } from "viem";
+import { createPublicClient, createWalletClient, custom, http, keccak256, stringToHex, zeroHash, type Address } from "viem";
 import { Icon } from "./icons";
 import { DocsPage } from "./DocsPage";
 import { prepareConfidentialFile, type PreparedConfidentialBlob } from "./confidential";
@@ -545,10 +545,34 @@ function UploadPanel({ account, provider, onConnect, onClose, onCompleted }: { a
       setError(undefined); setState("registering");
       await ensureCoston2Network(provider);
       const wallet = createWalletClient({ account, chain: coston2, transport: custom(provider) });
-      const hash = await wallet.writeContract({ address: registryAddress, abi: registryAbi, functionName: "createBlobNamed", args: [prepared.blobId, prepared.name, prepared.commitment, BigInt(prepared.size), prepared.chunkSize, prepared.dataShards, prepared.totalShards, BigInt(prepared.expiresAt)] });
-      setRegistrationTx(hash);
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
-      if (receipt.status !== "success") throw new Error("Blob registration reverted on Coston2");
+      let uploadBlob = prepared;
+      let registrationBlock: bigint | undefined;
+      const existingBlobId = await publicClient.readContract({
+        address: registryAddress,
+        abi: registryAbi,
+        functionName: "blobIdByOwnerNameHash",
+        args: [account, keccak256(stringToHex(prepared.name))]
+      }) as `0x${string}`;
+      if (existingBlobId !== zeroHash) {
+        const raw = await publicClient.readContract({ address: registryAddress, abi: registryAbi, functionName: "blobs", args: [existingBlobId] }) as readonly unknown[];
+        const status = Number(raw[7]);
+        const matchesPreparedFile = String(raw[0]).toLowerCase() === account.toLowerCase()
+          && String(raw[1]).toLowerCase() === prepared.commitment.toLowerCase()
+          && Number(raw[2]) === prepared.size
+          && Number(raw[3]) === prepared.chunkSize
+          && Number(raw[4]) === prepared.dataShards
+          && Number(raw[5]) === prepared.totalShards;
+        if (!matchesPreparedFile) throw new Error(`The name "${prepared.name}" already belongs to a different blob. Choose another name.`);
+        if (status !== 0) throw new Error(`The blob "${prepared.name}" is already active or no longer accepts uploads. Open it in the explorer or choose another name.`);
+        uploadBlob = { ...prepared, blobId: existingBlobId, expiresAt: Number(raw[9]) };
+        setPrepared(uploadBlob);
+      } else {
+        const hash = await wallet.writeContract({ address: registryAddress, abi: registryAbi, functionName: "createBlobNamed", args: [prepared.blobId, prepared.name, prepared.commitment, BigInt(prepared.size), prepared.chunkSize, prepared.dataShards, prepared.totalShards, BigInt(prepared.expiresAt)] });
+        setRegistrationTx(hash);
+        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+        if (receipt.status !== "success") throw new Error("Blob registration reverted on Coston2");
+        registrationBlock = receipt.blockNumber;
+      }
       setState("registered");
       const sessionToken = await authenticate(account, wallet);
       setState("uploading");
@@ -556,17 +580,17 @@ function UploadPanel({ account, provider, onConnect, onClose, onCompleted }: { a
       interval = window.setInterval(() => {
         if (polling) return;
         polling = true;
-        void readProgress(prepared).catch(() => undefined).finally(() => { polling = false; });
+        void readProgress(uploadBlob).catch(() => undefined).finally(() => { polling = false; });
       }, 5000);
-      const response = await fetch(`${apiUrl}/blobs/${encodeURIComponent(account)}/${prepared.name.split("/").map(encodeURIComponent).join("/")}`, { method: "PUT", headers: { authorization: `Bearer ${sessionToken}`, "content-type": file.type || "application/octet-stream", "x-prime-blob-id": prepared.blobId, "x-prime-commitment": prepared.commitment, "x-prime-chunk-size": String(prepared.chunkSize), "x-prime-data-shards": String(prepared.dataShards), "x-prime-total-shards": String(prepared.totalShards), "x-prime-expires-at": String(prepared.expiresAt) }, body: file });
+      const response = await fetch(`${apiUrl}/blobs/${encodeURIComponent(account)}/${uploadBlob.name.split("/").map(encodeURIComponent).join("/")}`, { method: "PUT", headers: { authorization: `Bearer ${sessionToken}`, "content-type": file.type || "application/octet-stream", "x-prime-blob-id": uploadBlob.blobId, "x-prime-commitment": uploadBlob.commitment, "x-prime-chunk-size": String(uploadBlob.chunkSize), "x-prime-data-shards": String(uploadBlob.dataShards), "x-prime-total-shards": String(uploadBlob.totalShards), "x-prime-expires-at": String(uploadBlob.expiresAt) }, body: file });
       if (!response.ok) throw new Error((await response.json()).error || "Prime RPC upload failed");
       const uploadResult = await response.json() as { status?: string };
       const finalized = Boolean(uploadResult.status && ["active", "rebuilt"].includes(uploadResult.status.toLowerCase()));
       if (!finalized) throw new Error("Prime RPC accepted the file but did not report finalization");
-      setAcks(prepared.totalShards);
-      setPlacements(Array.from({ length: prepared.totalShards }, (_, shard) => ({ shard, providerId: 0, provider: "Acknowledged on Coston2", acknowledged: true })));
+      setAcks(uploadBlob.totalShards);
+      setPlacements(Array.from({ length: uploadBlob.totalShards }, (_, shard) => ({ shard, providerId: 0, provider: "Acknowledged on Coston2", acknowledged: true })));
       setState("active");
-      const logs = await publicClient.getLogs({ address: registryAddress, event: blobFinalizedEvent, args: { blobId: prepared.blobId }, fromBlock: receipt.blockNumber }).catch(() => []);
+      const logs = registrationBlock === undefined ? [] : await publicClient.getLogs({ address: registryAddress, event: blobFinalizedEvent, args: { blobId: uploadBlob.blobId }, fromBlock: registrationBlock }).catch(() => []);
       if (logs.at(-1)?.transactionHash) setFinalizationTx(logs.at(-1)!.transactionHash);
       onCompleted();
     } catch (error) { setError(walletErrorMessage(error)); setState("error"); }

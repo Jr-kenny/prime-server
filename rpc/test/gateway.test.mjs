@@ -94,6 +94,31 @@ test("wallet-owned developer API supports put, list, head, get, and range reads"
       body: input
     });
     assert.equal(mismatchedCommitment.status, 400);
+    const assignShard = registry.assignShard.bind(registry);
+    let interruptPlacement = true;
+    registry.assignShard = async (...args) => {
+      if (interruptPlacement && args[1] === 2) {
+        interruptPlacement = false;
+        throw new Error("simulated placement interruption");
+      }
+      return assignShard(...args);
+    };
+    const interruptedPut = await fetch(`${baseUrl}/prime/v1/blobs/${account.address}/hello.txt`, {
+      method: "PUT",
+      headers: {
+        ...authorization,
+        "content-type": "text/plain",
+        "x-prime-blob-id": blobId,
+        "x-prime-commitment": encoded.clayChunksetRoot,
+        "x-prime-chunk-size": String(erasureEngine.config.chunkSizeBytes),
+        "x-prime-data-shards": String(erasureEngine.config.k),
+        "x-prime-total-shards": String(erasureEngine.config.n),
+        "x-prime-expires-at": String(expiresAt)
+      },
+      body: input
+    });
+    assert.equal(interruptedPut.status, 502);
+    assert.equal(registry.getBlob(blobId).acknowledgements.length, 2);
     const put = await fetch(`${baseUrl}/prime/v1/blobs/${account.address}/hello.txt`, {
       method: "PUT",
       headers: {
