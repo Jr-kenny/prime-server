@@ -47,6 +47,8 @@ export function walletErrorMessage(error: unknown): string {
   if (code === -32002) return "A wallet request is already open. Finish it in your wallet, then try again.";
   if (code === 4100) return "This site is not authorized in your wallet. Open the wallet and approve the connection.";
   if (code === 4902) return "Flare Testnet Coston2 has not been added to this wallet yet.";
+  const directMessage = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  if (directMessage.toLowerCase().includes("too many requests") || /status:\s*429/i.test(directMessage)) return "Coston2 RPC is rate-limiting requests. Wait a moment and try again. If the upload completed, refresh to confirm its onchain status.";
   if (error instanceof Error && error.message && error.message !== "[object Object]") return error.message;
   if (typeof error === "string" && error && error !== "[object Object]") return error;
   if (typeof error === "object" && error !== null) {

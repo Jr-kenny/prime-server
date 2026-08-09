@@ -67,6 +67,7 @@ export type ExplorerStats = {
 
 export type ExplorerData = {
   source: "coston2";
+  cachedAt?: number;
   latestBlock?: string;
   indexedBlock?: string;
   fromBlock?: string;
@@ -244,7 +245,7 @@ export function readExplorerCache(address: Address): ExplorerData | undefined {
 
 export function writeExplorerCache(address: Address, data: ExplorerData) {
   try {
-    window.localStorage.setItem(`prime-server:explorer:${explorerCacheVersion}:${address.toLowerCase()}`, JSON.stringify(data));
+    window.localStorage.setItem(`prime-server:explorer:${explorerCacheVersion}:${address.toLowerCase()}`, JSON.stringify({ ...data, cachedAt: Date.now() }));
   } catch {
     // Storage can be unavailable in private browsing. Live loading still works.
   }

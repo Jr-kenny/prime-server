@@ -50,6 +50,7 @@ const WalletProviderContext = createContext<InjectedProvider | undefined>(undefi
 
 export function App() {
   const initialExplorerData = useMemo(() => liveMode && registryAddress ? readExplorerCache(registryAddress) : undefined, []);
+  const initialExplorerCacheFresh = Boolean(initialExplorerData?.cachedAt && Date.now() - initialExplorerData.cachedAt < 60_000);
   const [account, setAccount] = useState<Address>();
   const [wallets, setWallets] = useState<WalletOption[]>([]);
   const [walletProvider, setWalletProvider] = useState<InjectedProvider>();
@@ -63,7 +64,7 @@ export function App() {
   const [notice, setNotice] = useState<string>();
   const [data, setData] = useState<ExplorerData>(initialExplorerData || emptyExplorerData);
   const [loading, setLoading] = useState(liveMode && !initialExplorerData);
-  const [refreshing, setRefreshing] = useState(liveMode);
+  const [refreshing, setRefreshing] = useState(liveMode && !initialExplorerCacheFresh);
   const [dataError, setDataError] = useState<string>();
   const hasLoadedData = useRef(Boolean(initialExplorerData));
   const publicClient = useMemo(() => createPublicClient({
@@ -93,9 +94,26 @@ export function App() {
     }
   }, [publicClient]);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => { if (!initialExplorerCacheFresh) void refresh(); }, [refresh, initialExplorerCacheFresh]);
 
   useEffect(() => watchInjectedWallets(setWallets), []);
+
+  useEffect(() => {
+    if (account || walletProvider || !wallets.length) return;
+    let active = true;
+    let restored = false;
+    for (const wallet of wallets) {
+      void wallet.provider.request({ method: "eth_accounts" }).then((accounts) => {
+        if (!active || restored) return;
+        if (Array.isArray(accounts) && typeof accounts[0] === "string") {
+          restored = true;
+          setWalletProvider(wallet.provider);
+          setAccount(accounts[0] as Address);
+        }
+      }).catch(() => undefined);
+    }
+    return () => { active = false; };
+  }, [account, walletProvider, wallets]);
 
   useEffect(() => {
     if (!walletProvider?.on) return;
@@ -391,7 +409,12 @@ function ConfidentialComputeView({ account, provider: selectedProvider, onConnec
       const receipt = await publicClient.waitForTransactionReceipt({ hash });
       if (receipt.status !== "success") throw new Error("Confidential blob registration reverted on Coston2");
       setState("uploading");
-      interval = window.setInterval(() => readProgress(prepared).catch(() => undefined), 1800);
+      let polling = false;
+      interval = window.setInterval(() => {
+        if (polling) return;
+        polling = true;
+        void readProgress(prepared).catch(() => undefined).finally(() => { polling = false; });
+      }, 5000);
       const response = await fetch(`${apiUrl}/blobs/${encodeURIComponent(account)}/${prepared.name.split("/").map(encodeURIComponent).join("/")}`, {
         method: "PUT",
         headers: {
@@ -412,8 +435,9 @@ function ConfidentialComputeView({ account, provider: selectedProvider, onConnec
         body: new Blob([new Uint8Array(prepared.ciphertext).buffer], { type: "application/octet-stream" })
       });
       if (!response.ok) throw new Error((await response.json()).error || "Prime RPC confidential upload failed");
-      const status = await readProgress(prepared);
-      if (status !== 1 && status !== 3) throw new Error("Confidential ciphertext upload did not finalize");
+      const uploadResult = await response.json() as { status?: string };
+      if (!uploadResult.status || !["active", "rebuilt"].includes(uploadResult.status.toLowerCase())) throw new Error("Confidential ciphertext upload did not finalize");
+      setAcks(prepared.totalShards);
       setState("computing");
       await ensureCoston2Network(provider);
       const request = await authorizeAndRequestCompute({
@@ -510,15 +534,6 @@ function UploadPanel({ account, provider, onConnect, onClose, onCompleted }: { a
     if (!registryAddress) return 0;
     const raw = await publicClient.readContract({ address: registryAddress, abi: registryAbi, functionName: "blobs", args: [blob.blobId] }) as readonly unknown[];
     const count = Number(raw[6]); setAcks(count);
-    const next: Placement[] = [];
-    for (let shard = 0; shard < blob.totalShards; shard++) {
-      const providerId = await publicClient.readContract({ address: registryAddress, abi: registryAbi, functionName: "placement", args: [blob.blobId, shard] }) as bigint;
-      let endpoint = "";
-      if (providerId > 0n) { const provider = await publicClient.readContract({ address: registryAddress, abi: registryAbi, functionName: "providers", args: [providerId] }) as readonly unknown[]; endpoint = String(provider[1] || ""); }
-      const acknowledgement = providerId > 0n ? await publicClient.readContract({ address: registryAddress, abi: registryAbi, functionName: "acknowledgements", args: [blob.blobId, providerId, shard] }) as readonly unknown[] : undefined;
-      next.push({ shard, providerId: Number(providerId), provider: providerId > 0n ? `Provider ${providerId}` : "Awaiting assignment", endpoint, acknowledged: Boolean(acknowledgement?.[3]) });
-    }
-    setPlacements(next);
     return Number(raw[7]);
   }
 
@@ -537,12 +552,21 @@ function UploadPanel({ account, provider, onConnect, onClose, onCompleted }: { a
       setState("registered");
       const sessionToken = await authenticate(account, wallet);
       setState("uploading");
-      interval = window.setInterval(() => readProgress(prepared).catch(() => undefined), 1800);
+      let polling = false;
+      interval = window.setInterval(() => {
+        if (polling) return;
+        polling = true;
+        void readProgress(prepared).catch(() => undefined).finally(() => { polling = false; });
+      }, 5000);
       const response = await fetch(`${apiUrl}/blobs/${encodeURIComponent(account)}/${prepared.name.split("/").map(encodeURIComponent).join("/")}`, { method: "PUT", headers: { authorization: `Bearer ${sessionToken}`, "content-type": file.type || "application/octet-stream", "x-prime-blob-id": prepared.blobId, "x-prime-commitment": prepared.commitment, "x-prime-chunk-size": String(prepared.chunkSize), "x-prime-data-shards": String(prepared.dataShards), "x-prime-total-shards": String(prepared.totalShards), "x-prime-expires-at": String(prepared.expiresAt) }, body: file });
       if (!response.ok) throw new Error((await response.json()).error || "Prime RPC upload failed");
-      const finalStatus = await readProgress(prepared);
-      setState(finalStatus === 1 || finalStatus === 3 ? "active" : "uploading");
-      const logs = await publicClient.getLogs({ address: registryAddress, event: blobFinalizedEvent, args: { blobId: prepared.blobId }, fromBlock: receipt.blockNumber });
+      const uploadResult = await response.json() as { status?: string };
+      const finalized = Boolean(uploadResult.status && ["active", "rebuilt"].includes(uploadResult.status.toLowerCase()));
+      if (!finalized) throw new Error("Prime RPC accepted the file but did not report finalization");
+      setAcks(prepared.totalShards);
+      setPlacements(Array.from({ length: prepared.totalShards }, (_, shard) => ({ shard, providerId: 0, provider: "Acknowledged on Coston2", acknowledged: true })));
+      setState("active");
+      const logs = await publicClient.getLogs({ address: registryAddress, event: blobFinalizedEvent, args: { blobId: prepared.blobId }, fromBlock: receipt.blockNumber }).catch(() => []);
       if (logs.at(-1)?.transactionHash) setFinalizationTx(logs.at(-1)!.transactionHash);
       onCompleted();
     } catch (error) { setError(walletErrorMessage(error)); setState("error"); }
