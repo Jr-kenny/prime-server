@@ -22,7 +22,8 @@ import {
 
 declare global { interface Window { ethereum?: EIP1193Provider } }
 
-const apiUrl = (import.meta.env.VITE_PRIME_RPC_URL || "http://localhost:8787/prime/v1").replace(/\/$/, "");
+const apiUrl = (import.meta.env.VITE_PRIME_RPC_URL || (import.meta.env.PROD ? "/prime-api" : "http://localhost:8787/prime/v1")).replace(/\/$/, "");
+const apiConfigured = Boolean(import.meta.env.VITE_PRIME_RPC_URL || import.meta.env.PROD);
 const registryAddress = import.meta.env.VITE_REGISTRY_ADDRESS as Address | undefined;
 const fccSenderAddress = import.meta.env.VITE_FCC_SENDER_ADDRESS as Address | undefined;
 const fccVerifierAddress = import.meta.env.VITE_FCC_RESULT_VERIFIER_ADDRESS as Address | undefined;
@@ -123,7 +124,7 @@ export function App() {
         <div className="top-actions"><div className="chain-pill"><span className="flare-icon">F</span>Coston2</div><button className="wallet-button" onClick={connect}><Icon name="wallet"/>{connectLabel(account)}</button></div>
       </header>
 
-      {view !== "docs" && <div className="system-rail" aria-label="Prime Server system status"><div><span className="live-dot"/><small>NETWORK</small><strong>Coston2</strong></div><i/><div><Icon name="cube"/><small>REGISTRY</small><strong>{data.source === "coston2" ? "Live" : "Not configured"}</strong></div><i/><div><Icon name="server"/><small>PROVIDERS</small><strong>{data.stats.activeProviders}/{data.stats.providers} active</strong></div><i/><div><Icon name="pulse"/><small>PRIME RPC</small><strong>{import.meta.env.VITE_PRIME_RPC_URL ? "Ready" : "Local"}</strong></div></div>}
+      {view !== "docs" && <div className="system-rail" aria-label="Prime Server system status"><div><span className="live-dot"/><small>NETWORK</small><strong>Coston2</strong></div><i/><div><Icon name="cube"/><small>REGISTRY</small><strong>{data.source === "coston2" ? "Live" : "Not configured"}</strong></div><i/><div><Icon name="server"/><small>PROVIDERS</small><strong>{data.stats.activeProviders}/{data.stats.providers} active</strong></div><i/><div><Icon name="pulse"/><small>PRIME RPC</small><strong>{apiConfigured ? "Ready" : "Local"}</strong></div></div>}
 
       <div className="page">
         {view !== "docs" && <div className={`preview-banner ${data.source === "coston2" ? "live" : ""}`}><span>{sourceLabel.toUpperCase()}</span> {sourceMessage}{liveMode && <button className="banner-action" onClick={() => void refresh()} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>}</div>}
