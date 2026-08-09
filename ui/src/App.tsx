@@ -44,6 +44,60 @@ const navItems: Array<{ id: View; label: string; icon: string }> = [
 
 function connectLabel(account?: Address) { return account ? shortHex(account, 8, 4) : "Connect wallet"; }
 
+const coston2ChainId = `0x${coston2.id.toString(16)}`;
+const coston2WalletParams = {
+  chainId: coston2ChainId,
+  chainName: coston2.name,
+  nativeCurrency: coston2.nativeCurrency,
+  rpcUrls: [...coston2.rpcUrls.default.http],
+  blockExplorerUrls: [coston2.blockExplorers.default.url]
+};
+
+function walletErrorCode(error: unknown) {
+  return typeof error === "object" && error !== null && "code" in error ? (error as { code?: unknown }).code : undefined;
+}
+
+function walletErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function normalizeChainId(value: unknown) {
+  const chainId = String(value).toLowerCase();
+  return chainId.startsWith("0x") ? chainId : `0x${Number(chainId).toString(16)}`;
+}
+
+function isUnknownWalletChain(error: unknown) {
+  const code = walletErrorCode(error);
+  const message = walletErrorMessage(error).toLowerCase();
+  return code === 4902 || message.includes("unrecognized chain") || message.includes("unknown chain") || message.includes("chain not added");
+}
+
+async function ensureCoston2Network(provider: EIP1193Provider): Promise<"ready" | "switched" | "added"> {
+  const currentChainId = normalizeChainId(await provider.request({ method: "eth_chainId" }));
+  if (currentChainId === coston2ChainId) return "ready";
+
+  try {
+    await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: coston2ChainId }] });
+  } catch (error) {
+    if (walletErrorCode(error) === 4001) throw new Error("Approve the switch to Flare Coston2 in your wallet to continue.");
+    if (!isUnknownWalletChain(error)) throw error;
+    try {
+      await provider.request({ method: "wallet_addEthereumChain", params: [coston2WalletParams] });
+      await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: coston2ChainId }] });
+    } catch (addError) {
+      if (walletErrorCode(addError) === 4001) throw new Error("Approve adding Flare Coston2 in your wallet to continue.");
+      throw addError;
+    }
+    const addedChainId = normalizeChainId(await provider.request({ method: "eth_chainId" }));
+    if (addedChainId !== coston2ChainId) throw new Error("Your wallet must be connected to Flare Coston2 to continue.");
+    return "added";
+  }
+
+  const selectedChainId = normalizeChainId(await provider.request({ method: "eth_chainId" }));
+  if (selectedChainId !== coston2ChainId) throw new Error("Your wallet must be connected to Flare Coston2 to continue.");
+  return "switched";
+}
+
 export function App() {
   const [account, setAccount] = useState<Address>();
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -84,9 +138,10 @@ export function App() {
     try {
       const wallet = createWalletClient({ chain: coston2, transport: custom(window.ethereum) });
       const [address] = await wallet.requestAddresses();
+      const networkAction = await ensureCoston2Network(window.ethereum);
       setAccount(address);
-      setNotice(`Connected to ${shortHex(address, 8, 4)}.`);
-    } catch (error) { setNotice(error instanceof Error ? error.message : "Wallet connection failed"); }
+      setNotice(networkAction === "added" ? `Added Flare Coston2 and connected to ${shortHex(address, 8, 4)}.` : networkAction === "switched" ? `Switched to Flare Coston2 and connected to ${shortHex(address, 8, 4)}.` : `Connected to ${shortHex(address, 8, 4)} on Flare Coston2.`);
+    } catch (error) { setNotice(walletErrorMessage(error) || "Wallet connection failed"); }
   }
 
   const normalizedSearch = search.trim().toLowerCase();
@@ -271,6 +326,7 @@ function ConfidentialComputeView({ account, onConnect, onCompleted }: { account?
     try {
       setState("preparing");
       setError(undefined);
+      await ensureCoston2Network(window.ethereum);
       const wallet = createWalletClient({ account, chain: coston2, transport: custom(window.ethereum) });
       const sessionToken = await authenticate(account, wallet);
       const infoResponse = await fetch(`${apiUrl}/fcc/info`, { headers: { authorization: `Bearer ${sessionToken}` } });
@@ -318,6 +374,7 @@ function ConfidentialComputeView({ account, onConnect, onCompleted }: { account?
     let interval: number | undefined;
     try {
       setError(undefined);
+      await ensureCoston2Network(window.ethereum);
       const wallet = createWalletClient({ account, chain: coston2, transport: custom(window.ethereum) });
       const sessionToken = await authenticate(account, wallet);
       setState("registering");
@@ -372,6 +429,7 @@ function ConfidentialComputeView({ account, onConnect, onCompleted }: { account?
       const status = await readProgress(prepared);
       if (status !== 1 && status !== 3) throw new Error("Confidential ciphertext upload did not finalize");
       setState("computing");
+      await ensureCoston2Network(window.ethereum);
       const request = await authorizeAndRequestCompute({
         publicClient,
         walletClient: wallet,
@@ -392,6 +450,7 @@ function ConfidentialComputeView({ account, onConnect, onCompleted }: { account?
       if (String(computedResult.requestId).toLowerCase() !== request.requestId.toLowerCase()) throw new Error("FCC result request binding mismatch");
       if (String(computedResult.blobId).toLowerCase() !== prepared.blobId.toLowerCase()) throw new Error("FCC result blob binding mismatch");
       setResult(computedResult);
+      await ensureCoston2Network(window.ethereum);
       const submitHash = await wallet.writeContract({
         address: fccVerifierAddress,
         abi: fccVerifierAbi,
@@ -483,6 +542,7 @@ function UploadPanel({ account, onConnect, onClose, onCompleted }: { account?: A
     let interval: number | undefined;
     try {
       setError(undefined); setState("registering");
+      await ensureCoston2Network(window.ethereum);
       const wallet = createWalletClient({ account, chain: coston2, transport: custom(window.ethereum) });
       const hash = await wallet.writeContract({ address: registryAddress, abi: registryAbi, functionName: "createBlobNamed", args: [prepared.blobId, prepared.name, prepared.commitment, BigInt(prepared.size), prepared.chunkSize, prepared.dataShards, prepared.totalShards, BigInt(prepared.expiresAt)] });
       setRegistrationTx(hash);
